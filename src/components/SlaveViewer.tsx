@@ -18,6 +18,7 @@ interface SlaveViewerProps {
   /** Pen drawing props */
   isPenMode?: boolean;
   penColor?: string;
+  penSize?: 'fine' | 'medium' | 'thick';
   /** Changing this value clears the drawing canvas instantly */
   clearTrigger?: string;
 }
@@ -32,6 +33,7 @@ export default function SlaveViewer({
   showPlaceholder = true,
   isPenMode = false,
   penColor = '#facc15',
+  penSize = 'fine',
   clearTrigger,
 }: SlaveViewerProps) {
   const hasBgImage = Boolean(data.bgImage);
@@ -99,11 +101,16 @@ export default function SlaveViewer({
       // Detect highlighter vs normal pen by opacity of selected color
       const isHighlighter = penColor.startsWith('rgba') || ['#facc15', '#a3e635', '#fb923c', '#f472b6', '#60a5fa'].includes(penColor);
 
+      // Dynamic width based on penSize selection
+      let baseWidth = 2; // fine (얇게)
+      if (penSize === 'medium') baseWidth = 5; // 보통
+      if (penSize === 'thick') baseWidth = 12; // 두껍게
+
       ctx.save();
       ctx.globalAlpha = isHighlighter ? 0.45 : 1.0;
       ctx.globalCompositeOperation = 'source-over';
       ctx.strokeStyle = penColor;
-      ctx.lineWidth = isHighlighter ? 14 : 3;
+      ctx.lineWidth = isHighlighter ? Math.max(8, baseWidth * 2.2) : baseWidth;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
 
@@ -115,7 +122,7 @@ export default function SlaveViewer({
 
       lastPos.current = current;
     },
-    [isPenMode, penColor]
+    [isPenMode, penColor, penSize]
   );
 
   const onMouseUp = useCallback(() => {

@@ -13,6 +13,7 @@ interface CenterGridProps {
   /** Pen drawing props passed through to SlaveViewers */
   isPenMode?: boolean;
   penColor?: string;
+  penSize?: 'fine' | 'medium' | 'thick';
   /** When this string changes, all drawing canvases are cleared */
   clearTrigger?: string;
 }
@@ -24,6 +25,7 @@ export default function CenterGrid({
   onOpenImageSearch,
   isPenMode = false,
   penColor = '#facc15',
+  penSize = 'fine',
   clearTrigger,
 }: CenterGridProps) {
   return (
@@ -41,6 +43,7 @@ export default function CenterGrid({
             showPlaceholder={true}
             isPenMode={isPenMode}
             penColor={penColor}
+            penSize={penSize}
             clearTrigger={clearTrigger}
           />
         </div>
@@ -56,6 +59,7 @@ export default function CenterGrid({
             showPlaceholder={false}
             isPenMode={isPenMode}
             penColor={penColor}
+            penSize={penSize}
             clearTrigger={clearTrigger}
           />
         </div>

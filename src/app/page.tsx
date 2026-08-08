@@ -97,6 +97,7 @@ export default function Home() {
   // Pen drawing tool state
   const [isPenMode, setIsPenMode] = useState(false);
   const [penColor, setPenColor] = useState('#facc15');
+  const [penSize, setPenSize] = useState<'fine' | 'medium' | 'thick'>('fine');
 
   // Master 1 & 2 Update Handlers
   const handleUpdateMaster1 = (updated: Partial<Slide['master1']>) => {
@@ -309,6 +310,7 @@ export default function Home() {
             onOpenImageSearch={() => setIsImageSearchOpen(true)}
             isPenMode={isPenMode}
             penColor={penColor}
+            penSize={penSize}
             clearTrigger={activeSlideId}
           />
 
@@ -322,8 +324,10 @@ export default function Home() {
             onOpenGuideModal={() => setIsGuideModalOpen(true)}
             isPenMode={isPenMode}
             penColor={penColor}
+            penSize={penSize}
             onTogglePen={() => setIsPenMode((v) => !v)}
             onChangePenColor={setPenColor}
+            onChangePenSize={setPenSize}
           />
 
           {/* Image Search Modal */}

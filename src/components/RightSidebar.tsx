@@ -35,8 +35,10 @@ interface RightSidebarProps {
   onOpenGuideModal: () => void;
   isPenMode: boolean;
   penColor: string;
+  penSize: 'fine' | 'medium' | 'thick';
   onTogglePen: () => void;
   onChangePenColor: (color: string) => void;
+  onChangePenSize: (size: 'fine' | 'medium' | 'thick') => void;
 }
 
 const PEN_COLORS = [
@@ -59,8 +61,10 @@ export default function RightSidebar({
   onOpenGuideModal,
   isPenMode,
   penColor,
+  penSize,
   onTogglePen,
   onChangePenColor,
+  onChangePenSize,
 }: RightSidebarProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -103,6 +107,7 @@ export default function RightSidebar({
   };
 
   // ── Recording Engine: Dual Slave Viewer Canvas Composite (1920x1080) ─────────
+  // ── Recording Engine: Dual Slave View Overlay + Floating Video (YouTube/System Audio) ──
   const startRecording = async () => {
     const slave1 = document.getElementById('slave-view-1');
     const slave2 = document.getElementById('slave-view-2');
@@ -113,7 +118,18 @@ export default function RightSidebar({
     }
 
     try {
-      // 1. Offscreen 1920x1080 High-Res Composite Canvas
+      // 1. Request Screen / Display Stream (Captures YouTube floating windows & system audio)
+      let displayStream: MediaStream | null = null;
+      try {
+        displayStream = await navigator.mediaDevices.getDisplayMedia({
+          video: { displaySurface: 'monitor', width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } },
+          audio: true, // YouTube & system audio
+        });
+      } catch (e) {
+        console.warn('Display media capture skipped/cancelled, fallback to DOM canvas composite.');
+      }
+
+      // 2. Offscreen 1920x1080 High-Res Composite Canvas
       const REC_W = 1920;
       const REC_H = 1080;
       const HALF = REC_W / 2;
@@ -123,9 +139,23 @@ export default function RightSidebar({
       canvas.height = REC_H;
       const ctx = canvas.getContext('2d');
 
-      // 2. Audio Setup (Microphone + Silent Audio Anchor)
+      // Hidden video element if displayStream is present
+      let videoEl: HTMLVideoElement | null = null;
+      if (displayStream) {
+        videoEl = document.createElement('video');
+        videoEl.srcObject = displayStream;
+        videoEl.muted = true; // avoid feedback
+        await videoEl.play();
+      }
+
+      // 3. Audio Setup: Combine Display System Audio (YouTube) + Microphone
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const dest = audioCtx.createMediaStreamDestination();
+
+      if (displayStream && displayStream.getAudioTracks().length > 0) {
+        const sysSource = audioCtx.createMediaStreamSource(displayStream);
+        sysSource.connect(dest);
+      }
 
       let micStream: MediaStream | null = null;
       if (isMicEnabled) {
@@ -137,7 +167,8 @@ export default function RightSidebar({
           console.warn('Microphone stream access unavailable:', e);
         }
       }
-      if (!micStream) {
+
+      if ((!displayStream || displayStream.getAudioTracks().length === 0) && !micStream) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         gain.gain.value = 0.0001;
@@ -146,40 +177,70 @@ export default function RightSidebar({
         osc.start();
       }
 
-      // 3. Composite Render Loop — captures slave 1 & slave 2 including drawings and top elements
+      // 4. Render Loop: Crop displayStream to slave1 & slave2 bounding boxes if active, or use html2canvas
       let lastCapture = 0;
-      const INTERVAL_MS = 200; // ~5 fps high quality rendering
+      const INTERVAL_MS = 60; // ~16 fps smooth video composite
 
       const renderLoop = async (timestamp: number) => {
         if (!ctx) return;
 
         if (timestamp - lastCapture >= INTERVAL_MS) {
           lastCapture = timestamp;
-          try {
-            // Temporarily hide UI chrome (badges/footers)
-            setUiVisibility(false);
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, REC_W, REC_H);
 
-            // Capture snapshots of ①_slave & ②_slave with all overlays (pen, images, top layers)
-            const [c1, c2] = await Promise.all([
-              html2canvas(slave1, { scale: 2, useCORS: true, logging: false, allowTaint: true }),
-              html2canvas(slave2, { scale: 2, useCORS: true, logging: false, allowTaint: true }),
-            ]);
+          if (videoEl && videoEl.readyState >= 2) {
+            // Screen Capture Cropping Logic
+            const r1 = slave1.getBoundingClientRect();
+            const r2 = slave2.getBoundingClientRect();
 
-            // Restore UI chrome
-            setUiVisibility(true);
+            const scaleX = videoEl.videoWidth / window.innerWidth;
+            const scaleY = videoEl.videoHeight / window.innerHeight;
 
-            // Draw side-by-side filling 1920x1080 canvas
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, REC_W, REC_H);
-            ctx.drawImage(c1, 0, 0, HALF, REC_H);
-            ctx.drawImage(c2, HALF, 0, HALF, REC_H);
+            // Draw ①_slave crop (left side)
+            ctx.drawImage(
+              videoEl,
+              r1.left * scaleX,
+              r1.top * scaleY,
+              r1.width * scaleX,
+              r1.height * scaleY,
+              0,
+              0,
+              HALF,
+              REC_H
+            );
 
-            // Centre divider
-            ctx.fillStyle = 'rgba(0,0,0,0.06)';
-            ctx.fillRect(HALF - 1, 0, 2, REC_H);
-          } catch {
-            setUiVisibility(true);
+            // Draw ②_slave crop (right side)
+            ctx.drawImage(
+              videoEl,
+              r2.left * scaleX,
+              r2.top * scaleY,
+              r2.width * scaleX,
+              r2.height * scaleY,
+              HALF,
+              0,
+              HALF,
+              REC_H
+            );
+          } else {
+            // Fallback html2canvas composite
+            try {
+              setUiVisibility(false);
+              const [c1, c2] = await Promise.all([
+                html2canvas(slave1, { scale: 2, useCORS: true, logging: false }),
+                html2canvas(slave2, { scale: 2, useCORS: true, logging: false }),
+              ]);
+              setUiVisibility(true);
+              ctx.drawImage(c1, 0, 0, HALF, REC_H);
+              ctx.drawImage(c2, HALF, 0, HALF, REC_H);
+            } catch {
+              setUiVisibility(true);
+            }
           }
+
+          // Thin centre divider line
+          ctx.fillStyle = 'rgba(0,0,0,0.06)';
+          ctx.fillRect(HALF - 1, 0, 2, REC_H);
         }
 
         if (isRecordingRef.current) {
@@ -187,13 +248,12 @@ export default function RightSidebar({
         }
       };
 
-      // 4. Stream Setup & MediaRecorder
+      // 5. Stream Setup & MediaRecorder
       const canvasStream = canvas.captureStream(30);
-      const combinedTracks = [
+      const finalStream = new MediaStream([
         ...canvasStream.getVideoTracks(),
         ...dest.stream.getAudioTracks(),
-      ];
-      const finalStream = new MediaStream(combinedTracks);
+      ]);
 
       const mimeTypeOptions = [
         'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
@@ -214,7 +274,7 @@ export default function RightSidebar({
 
       const recorder = new MediaRecorder(finalStream, {
         mimeType: selectedMimeType,
-        videoBitsPerSecond: 8_000_000, // 8 Mbps high quality
+        videoBitsPerSecond: 8_000_000,
       });
       chunksRef.current = [];
 
@@ -224,6 +284,13 @@ export default function RightSidebar({
 
       recorder.onstop = () => {
         setUiVisibility(true);
+        if (displayStream) {
+          displayStream.getTracks().forEach((track) => track.stop());
+        }
+        if (micStream) {
+          micStream.getTracks().forEach((track) => track.stop());
+        }
+
         const isMp4 = selectedMimeType.includes('mp4');
         const blob = new Blob(chunksRef.current, { type: isMp4 ? 'video/mp4' : 'video/webm' });
 
@@ -413,6 +480,43 @@ export default function RightSidebar({
               }`}
             />
           ))}
+        </div>
+
+        {/* Pen Thickness / Size Selector */}
+        <div className="flex items-center justify-between gap-1.5 pt-1">
+          <span className="text-[11px] font-semibold text-slate-500">두께:</span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => onChangePenSize('fine')}
+              className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all ${
+                penSize === 'fine'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              얇게 (2px)
+            </button>
+            <button
+              onClick={() => onChangePenSize('medium')}
+              className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all ${
+                penSize === 'medium'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              보통 (5px)
+            </button>
+            <button
+              onClick={() => onChangePenSize('thick')}
+              className={`px-2.5 py-1 text-xs rounded-lg font-bold transition-all ${
+                penSize === 'thick'
+                  ? 'bg-indigo-600 text-white shadow-sm'
+                  : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-100'
+              }`}
+            >
+              두껍게 (12px)
+            </button>
+          </div>
         </div>
 
         {isPenMode && (
