@@ -151,6 +151,7 @@ export default function SlaveViewer({
 
       {/* Background Color / Image Container */}
       <div
+        data-slide-canvas="true"
         className="relative flex-1 w-full h-full p-8 md:p-12 flex flex-col justify-center overflow-auto transition-colors duration-300"
         style={{
           backgroundColor: data.bgColor || '#ffffff',

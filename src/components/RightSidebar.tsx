@@ -190,9 +190,12 @@ export default function RightSidebar({
           ctx.fillRect(0, 0, REC_W, REC_H);
 
           if (videoEl && videoEl.readyState >= 2) {
-            // Screen Capture Cropping Logic
-            const r1 = slave1.getBoundingClientRect();
-            const r2 = slave2.getBoundingClientRect();
+            // Screen Capture Cropping Logic (Target inner presentation slide canvas excluding top badges and bottom footer)
+            const c1El = slave1.querySelector('[data-slide-canvas="true"]') || slave1;
+            const c2El = slave2.querySelector('[data-slide-canvas="true"]') || slave2;
+
+            const r1 = c1El.getBoundingClientRect();
+            const r2 = c2El.getBoundingClientRect();
 
             const scaleX = videoEl.videoWidth / window.innerWidth;
             const scaleY = videoEl.videoHeight / window.innerHeight;
