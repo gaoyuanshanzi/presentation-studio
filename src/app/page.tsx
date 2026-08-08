@@ -94,6 +94,10 @@ export default function Home() {
   // Get active slide
   const currentSlide = slides.find((s) => s.id === activeSlideId) || slides[0];
 
+  // Pen drawing tool state
+  const [isPenMode, setIsPenMode] = useState(false);
+  const [penColor, setPenColor] = useState('#facc15');
+
   // Master 1 & 2 Update Handlers
   const handleUpdateMaster1 = (updated: Partial<Slide['master1']>) => {
     setSlides((prev) =>
@@ -303,6 +307,9 @@ export default function Home() {
             onUpdateMaster1={handleUpdateMaster1}
             onUpdateMaster2={handleUpdateMaster2}
             onOpenImageSearch={() => setIsImageSearchOpen(true)}
+            isPenMode={isPenMode}
+            penColor={penColor}
+            clearTrigger={activeSlideId}
           />
 
           {/* Right Sidebar: Screen/Audio Recorder & Neon MP4 Storage */}
@@ -313,6 +320,10 @@ export default function Home() {
             onSaveRecordingToNeonDb={handleSaveRecordingToNeonDb}
             onDeleteRecordingFromNeonDb={handleDeleteRecordingFromNeonDb}
             onOpenGuideModal={() => setIsGuideModalOpen(true)}
+            isPenMode={isPenMode}
+            penColor={penColor}
+            onTogglePen={() => setIsPenMode((v) => !v)}
+            onChangePenColor={setPenColor}
           />
 
           {/* Image Search Modal */}

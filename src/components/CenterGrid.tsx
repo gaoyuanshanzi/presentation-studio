@@ -10,13 +10,21 @@ interface CenterGridProps {
   onUpdateMaster1: (updated: Partial<Slide['master1']>) => void;
   onUpdateMaster2: (updated: Partial<Slide['master2']>) => void;
   onOpenImageSearch: () => void;
+  /** Pen drawing props passed through to SlaveViewers */
+  isPenMode?: boolean;
+  penColor?: string;
+  /** When this string changes, all drawing canvases are cleared */
+  clearTrigger?: string;
 }
 
 export default function CenterGrid({
   currentSlide,
   onUpdateMaster1,
   onUpdateMaster2,
-  onOpenImageSearch
+  onOpenImageSearch,
+  isPenMode = false,
+  penColor = '#facc15',
+  clearTrigger,
 }: CenterGridProps) {
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto p-3 md:p-4 gap-3 md:gap-4 bg-slate-100/70">
@@ -30,6 +38,10 @@ export default function CenterGrid({
             badgeText="①_slave"
             badgeColor="bg-blue-600 text-white"
             data={currentSlide.master1}
+            showPlaceholder={true}
+            isPenMode={isPenMode}
+            penColor={penColor}
+            clearTrigger={clearTrigger}
           />
         </div>
 
@@ -42,6 +54,9 @@ export default function CenterGrid({
             badgeColor="bg-indigo-600 text-white"
             data={currentSlide.master2}
             showPlaceholder={false}
+            isPenMode={isPenMode}
+            penColor={penColor}
+            clearTrigger={clearTrigger}
           />
         </div>
       </div>

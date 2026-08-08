@@ -17,7 +17,10 @@ import {
   X,
   Sparkles,
   Loader2,
-  HardDrive
+  HardDrive,
+  Pen,
+  PenOff,
+  Eraser
 } from 'lucide-react';
 import { RecordingItem } from '@/types';
 import html2canvas from 'html2canvas';
@@ -29,7 +32,23 @@ interface RightSidebarProps {
   onSaveRecordingToNeonDb: (title: string, duration: number, videoData: string) => Promise<boolean>;
   onDeleteRecordingFromNeonDb: (id: string) => Promise<void>;
   onOpenGuideModal: () => void;
+  /** Pen tool state lifted to parent for CenterGrid sync */
+  isPenMode: boolean;
+  penColor: string;
+  onTogglePen: () => void;
+  onChangePenColor: (color: string) => void;
 }
+
+const PEN_COLORS = [
+  { label: '형광 노랑',  value: '#facc15', bg: 'bg-yellow-400' },
+  { label: '형광 초록',  value: '#a3e635', bg: 'bg-lime-400' },
+  { label: '형광 분홍',  value: '#f472b6', bg: 'bg-pink-400' },
+  { label: '형광 파랑',  value: '#60a5fa', bg: 'bg-blue-400' },
+  { label: '형광 주황',  value: '#fb923c', bg: 'bg-orange-400' },
+  { label: '흰 색',     value: '#ffffff', bg: 'bg-white border border-slate-300' },
+  { label: '검 정',     value: '#0f172a', bg: 'bg-slate-900' },
+  { label: '빨 강',     value: '#ef4444', bg: 'bg-red-500' },
+];
 
 export default function RightSidebar({
   neonRecordings,
@@ -37,7 +56,11 @@ export default function RightSidebar({
   onRefreshRecordings,
   onSaveRecordingToNeonDb,
   onDeleteRecordingFromNeonDb,
-  onOpenGuideModal
+  onOpenGuideModal,
+  isPenMode,
+  penColor,
+  onTogglePen,
+  onChangePenColor,
 }: RightSidebarProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -340,7 +363,51 @@ export default function RightSidebar({
         </div>
       </div>
 
+      {/* ── Pen Drawing Tool Panel ────────────────────────────────────── */}
+      <div className="p-4 border-b border-slate-200 bg-slate-50/60 space-y-3">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+            <Pen className="w-3.5 h-3.5 text-indigo-500" />
+            드로잉 펜 도구
+          </span>
+          <button
+            onClick={onTogglePen}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all shadow-sm ${
+              isPenMode
+                ? 'bg-indigo-600 text-white shadow-indigo-300/30'
+                : 'bg-slate-200 text-slate-600 hover:bg-slate-300'
+            }`}
+          >
+            {isPenMode ? <PenOff className="w-3.5 h-3.5" /> : <Pen className="w-3.5 h-3.5" />}
+            {isPenMode ? 'OFF' : 'ON'}
+          </button>
+        </div>
+
+        {/* Color swatches */}
+        <div className="grid grid-cols-8 gap-1.5">
+          {PEN_COLORS.map((c) => (
+            <button
+              key={c.value}
+              onClick={() => onChangePenColor(c.value)}
+              title={c.label}
+              className={`w-7 h-7 rounded-lg transition-all ${c.bg} ${
+                penColor === c.value
+                  ? 'ring-2 ring-indigo-500 ring-offset-1 scale-110'
+                  : 'hover:scale-110 opacity-80 hover:opacity-100'
+              }`}
+            />
+          ))}
+        </div>
+
+        {isPenMode && (
+          <p className="text-[10px] text-indigo-600 font-medium bg-indigo-50 px-2 py-1 rounded-lg">
+            ✏️ 펜 활성화 — slave 화면 위에서 마우스로 그리세요. 슬라이드 변경 시 자동 초기화.
+          </p>
+        )}
+      </div>
+
       {/* MP4 Directory Header */}
+
       <div className="p-3 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
         <span className="font-bold text-xs text-slate-700 flex items-center gap-1.5">
           <Film className="w-4 h-4 text-indigo-600" />
