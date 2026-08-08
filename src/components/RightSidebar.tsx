@@ -24,6 +24,7 @@ import {
   Monitor
 } from 'lucide-react';
 import { RecordingItem } from '@/types';
+import html2canvas from 'html2canvas';
 
 interface RightSidebarProps {
   neonRecordings: RecordingItem[];
@@ -32,7 +33,6 @@ interface RightSidebarProps {
   onSaveRecordingToNeonDb: (title: string, duration: number, videoData: string) => Promise<boolean>;
   onDeleteRecordingFromNeonDb: (id: string) => Promise<void>;
   onOpenGuideModal: () => void;
-  /** Pen tool state lifted to parent for CenterGrid sync */
   isPenMode: boolean;
   penColor: string;
   onTogglePen: () => void;
@@ -78,8 +78,8 @@ export default function RightSidebar({
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
-  const screenStreamRef = useRef<MediaStream | null>(null);
-  const micStreamRef = useRef<MediaStream | null>(null);
+  const isRecordingRef = useRef(false);
+  const animFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isRecording && !isPaused) {
@@ -94,47 +94,50 @@ export default function RightSidebar({
     };
   }, [isRecording, isPaused]);
 
-  // ── Main Screen Share + Mic Audio Recording (MP4 Format) ─────────────────────
-  const startRecording = async () => {
-    try {
-      // 1. Capture Display Media (Screen / Application Window / Browser Tab)
-      // This records EVERYTHING over the presentation, including popped-up video, floating windows, overlays, etc.
-      const screenStream = await navigator.mediaDevices.getDisplayMedia({
-        video: {
-          displaySurface: 'monitor', // or 'window' / 'browser'
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
-          frameRate: { ideal: 30 },
-        },
-        audio: true, // Capture system audio if available
-      });
-      screenStreamRef.current = screenStream;
+  // Hide UI badges/footers during capture pass
+  const setUiVisibility = (visible: boolean) => {
+    const els = document.querySelectorAll<HTMLElement>('[data-export-ignore]');
+    els.forEach((el) => {
+      el.style.visibility = visible ? '' : 'hidden';
+    });
+  };
 
-      // 2. Setup AudioContext & Combine Screen Audio + Mic Audio
+  // ── Recording Engine: Dual Slave Viewer Canvas Composite (1920x1080) ─────────
+  const startRecording = async () => {
+    const slave1 = document.getElementById('slave-view-1');
+    const slave2 = document.getElementById('slave-view-2');
+
+    if (!slave1 || !slave2) {
+      alert('프레젠테이션 뷰어를 찾을 수 없습니다.');
+      return;
+    }
+
+    try {
+      // 1. Offscreen 1920x1080 High-Res Composite Canvas
+      const REC_W = 1920;
+      const REC_H = 1080;
+      const HALF = REC_W / 2;
+
+      const canvas = document.createElement('canvas');
+      canvas.width = REC_W;
+      canvas.height = REC_H;
+      const ctx = canvas.getContext('2d');
+
+      // 2. Audio Setup (Microphone + Silent Audio Anchor)
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const dest = audioCtx.createMediaStreamDestination();
 
-      // Connect screen audio track if available
-      if (screenStream.getAudioTracks().length > 0) {
-        const screenAudioSource = audioCtx.createMediaStreamSource(screenStream);
-        screenAudioSource.connect(dest);
-      }
-
-      // Connect mic audio track if enabled
       let micStream: MediaStream | null = null;
       if (isMicEnabled) {
         try {
           micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          micStreamRef.current = micStream;
           const micSource = audioCtx.createMediaStreamSource(micStream);
           micSource.connect(dest);
         } catch (e) {
           console.warn('Microphone stream access unavailable:', e);
         }
       }
-
-      // Fallback silent audio anchor if no audio tracks exist
-      if (screenStream.getAudioTracks().length === 0 && !micStream) {
+      if (!micStream) {
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
         gain.gain.value = 0.0001;
@@ -143,24 +146,60 @@ export default function RightSidebar({
         osc.start();
       }
 
-      // 3. Create Combined Stream: Screen Video + Mixed Audio
-      const videoTrack = screenStream.getVideoTracks()[0];
-      const audioTracks = dest.stream.getAudioTracks();
+      // 3. Composite Render Loop — captures slave 1 & slave 2 including drawings and top elements
+      let lastCapture = 0;
+      const INTERVAL_MS = 200; // ~5 fps high quality rendering
 
-      const finalStream = new MediaStream([videoTrack, ...audioTracks]);
+      const renderLoop = async (timestamp: number) => {
+        if (!ctx) return;
 
-      // If user stops sharing screen via browser floating toolbar, automatically stop recording
-      videoTrack.onended = () => {
-        stopRecording();
+        if (timestamp - lastCapture >= INTERVAL_MS) {
+          lastCapture = timestamp;
+          try {
+            // Temporarily hide UI chrome (badges/footers)
+            setUiVisibility(false);
+
+            // Capture snapshots of ①_slave & ②_slave with all overlays (pen, images, top layers)
+            const [c1, c2] = await Promise.all([
+              html2canvas(slave1, { scale: 2, useCORS: true, logging: false, allowTaint: true }),
+              html2canvas(slave2, { scale: 2, useCORS: true, logging: false, allowTaint: true }),
+            ]);
+
+            // Restore UI chrome
+            setUiVisibility(true);
+
+            // Draw side-by-side filling 1920x1080 canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, REC_W, REC_H);
+            ctx.drawImage(c1, 0, 0, HALF, REC_H);
+            ctx.drawImage(c2, HALF, 0, HALF, REC_H);
+
+            // Centre divider
+            ctx.fillStyle = 'rgba(0,0,0,0.06)';
+            ctx.fillRect(HALF - 1, 0, 2, REC_H);
+          } catch {
+            setUiVisibility(true);
+          }
+        }
+
+        if (isRecordingRef.current) {
+          animFrameRef.current = requestAnimationFrame(renderLoop);
+        }
       };
 
-      // 4. Determine Best Supported MIME Type (Priority: MP4)
+      // 4. Stream Setup & MediaRecorder
+      const canvasStream = canvas.captureStream(30);
+      const combinedTracks = [
+        ...canvasStream.getVideoTracks(),
+        ...dest.stream.getAudioTracks(),
+      ];
+      const finalStream = new MediaStream(combinedTracks);
+
       const mimeTypeOptions = [
         'video/mp4;codecs=avc1.42E01E,mp4a.40.2',
         'video/mp4;codecs=avc1,mp4a.40.2',
         'video/mp4;codecs=h264,aac',
         'video/mp4',
-        'video/webm;codecs=h264',
         'video/webm;codecs=vp9,opus',
         'video/webm',
       ];
@@ -173,10 +212,9 @@ export default function RightSidebar({
         }
       }
 
-      // 5. Initialize MediaRecorder
       const recorder = new MediaRecorder(finalStream, {
         mimeType: selectedMimeType,
-        videoBitsPerSecond: 6_000_000, // 6 Mbps high quality
+        videoBitsPerSecond: 8_000_000, // 8 Mbps high quality
       });
       chunksRef.current = [];
 
@@ -185,16 +223,9 @@ export default function RightSidebar({
       };
 
       recorder.onstop = () => {
-        // Cleanup active tracks
-        if (screenStreamRef.current) {
-          screenStreamRef.current.getTracks().forEach((track) => track.stop());
-        }
-        if (micStreamRef.current) {
-          micStreamRef.current.getTracks().forEach((track) => track.stop());
-        }
-
-        const actualType = selectedMimeType.includes('mp4') ? 'video/mp4' : 'video/webm';
-        const blob = new Blob(chunksRef.current, { type: actualType });
+        setUiVisibility(true);
+        const isMp4 = selectedMimeType.includes('mp4');
+        const blob = new Blob(chunksRef.current, { type: isMp4 ? 'video/mp4' : 'video/webm' });
 
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -204,20 +235,22 @@ export default function RightSidebar({
           setShowSaveModal(true);
         };
         reader.readAsDataURL(blob);
+
+        if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       };
 
       recorder.start(500);
       mediaRecorderRef.current = recorder;
+      isRecordingRef.current = true;
 
       setIsRecording(true);
       setIsPaused(false);
       setRecordingTime(0);
+
+      requestAnimationFrame(renderLoop);
     } catch (err) {
       console.error('Recording initialization error:', err);
-      // User cancelled screen picker or denied permission
-      if ((err as Error).name !== 'NotAllowedError') {
-        alert('화면 및 음성 녹화 시작 중 오류가 발생했습니다.');
-      }
+      alert('화면 및 음성 녹화 시작 중 오류가 발생했습니다.');
     }
   };
 
@@ -234,7 +267,8 @@ export default function RightSidebar({
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+    if (mediaRecorderRef.current && isRecordingRef.current) {
+      isRecordingRef.current = false;
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsPaused(false);
@@ -242,12 +276,10 @@ export default function RightSidebar({
   };
 
   const handleSaveLocalMp4 = () => {
-    if (recordedDataUrl && recordedBlob) {
-      const isMp4 = recordedBlob.type.includes('mp4');
-      const ext = isMp4 ? 'mp4' : 'webm';
+    if (recordedDataUrl) {
       const a = document.createElement('a');
       a.href = recordedDataUrl;
-      a.download = `Presentation_Recording_${new Date().getTime()}.${ext}`;
+      a.download = `Presentation_Recording_${new Date().getTime()}.mp4`;
       a.click();
       setShowSaveModal(false);
     }
@@ -280,7 +312,7 @@ export default function RightSidebar({
           </div>
           <div>
             <h2 className="font-bold text-slate-800 text-sm">화면/음성 녹화 센터</h2>
-            <p className="text-[10px] text-slate-500 font-medium">MP4 원본 캡처 • 외부창/동영상 녹화 지원</p>
+            <p className="text-[10px] text-slate-500 font-medium">①_slave + ②_slave 크롭 MP4 녹화</p>
           </div>
         </div>
 
@@ -311,8 +343,8 @@ export default function RightSidebar({
             </span>
           </div>
           <div className="text-[11px] text-slate-400 font-medium flex items-center gap-2">
-            <Monitor className="w-3.5 h-3.5 text-emerald-400" />
-            <span>화면+외부창+마이크 통합 녹화</span>
+            <Monitor className="w-3.5 h-3.5 text-indigo-400" />
+            <span>①_slave + ②_slave 슬라이드 뷰어만 MP4 합성</span>
           </div>
         </div>
 
@@ -323,7 +355,7 @@ export default function RightSidebar({
               className="col-span-3 py-3 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-2 shadow-lg shadow-red-500/25 transition-all"
             >
               <Video className="w-4 h-4 fill-white" />
-              <span>화면 선택 & 녹화 시작</span>
+              <span>슬라이드 뷰어 MP4 녹화 시작</span>
             </button>
           ) : (
             <>
@@ -463,7 +495,7 @@ export default function RightSidebar({
               </div>
               <div>
                 <h3 className="font-bold text-slate-800 text-base">녹화 완료! MP4 저장 선택</h3>
-                <p className="text-xs text-slate-500">녹화 시간: {formatTime(recordedDuration)} · MP4 포맷</p>
+                <p className="text-xs text-slate-500">녹화 시간: {formatTime(recordedDuration)} · 1920x1080 MP4</p>
               </div>
             </div>
             <div className="space-y-2 pt-2">
