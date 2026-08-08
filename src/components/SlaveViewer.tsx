@@ -175,10 +175,10 @@ export default function SlaveViewer({
           <div
             className={`relative z-10 w-full max-w-2xl mx-auto rounded-2xl transition-all ${
               hasBgImage
-                ? 'p-6 bg-slate-950/40 backdrop-blur-md border border-white/20 text-white shadow-xl'
+                ? 'p-6 bg-slate-950/40 backdrop-blur-md border border-white/20 shadow-xl'
                 : ''
             }`}
-            style={!hasBgImage ? { color: data.textColor || '#0f172a' } : undefined}
+            style={{ color: data.textColor || (hasBgImage ? '#ffffff' : '#0f172a') }}
           >
             <div className="slide-markdown-content">
               <ReactMarkdown remarkPlugins={[remarkGfm]}>{data.content}</ReactMarkdown>

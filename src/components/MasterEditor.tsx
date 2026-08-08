@@ -99,7 +99,7 @@ export default function MasterEditor({
             />
           </div>
 
-          {/* Text Color Picker */}
+          {/* Text Color Picker & Quick Presets */}
           <div className="flex items-center gap-1.5 bg-white border border-slate-200 px-2 py-1 rounded-lg">
             <Type className="w-3.5 h-3.5 text-slate-500" />
             <span className="text-slate-600 font-medium hidden sm:inline">글자:</span>
@@ -108,8 +108,32 @@ export default function MasterEditor({
               value={data.textColor || '#0f172a'}
               onChange={(e) => onChange({ textColor: e.target.value })}
               className="w-5 h-5 rounded cursor-pointer border-none p-0 bg-transparent"
-              title="글자색 변경"
+              title="커스텀 글자색 선택"
             />
+            {/* Quick Text Color Palette Swatches */}
+            <div className="flex items-center gap-1 border-l border-slate-200 pl-1.5 ml-0.5">
+              {[
+                { name: '검정', hex: '#0f172a', bg: 'bg-slate-900' },
+                { name: '파랑', hex: '#2563eb', bg: 'bg-blue-600' },
+                { name: '빨강', hex: '#dc2626', bg: 'bg-red-600' },
+                { name: '초록', hex: '#059669', bg: 'bg-emerald-600' },
+                { name: '보라', hex: '#7c3aed', bg: 'bg-purple-600' },
+                { name: '주황', hex: '#ea580c', bg: 'bg-orange-600' },
+                { name: '흰색', hex: '#ffffff', bg: 'bg-white border border-slate-300' },
+              ].map((c) => (
+                <button
+                  key={c.hex}
+                  type="button"
+                  onClick={() => onChange({ textColor: c.hex })}
+                  title={`${c.name} 글자색 선택`}
+                  className={`w-3.5 h-3.5 rounded-full transition-transform ${c.bg} ${
+                    (data.textColor || '#0f172a').toLowerCase() === c.hex.toLowerCase()
+                      ? 'ring-2 ring-indigo-500 ring-offset-1 scale-125'
+                      : 'hover:scale-125 opacity-80 hover:opacity-100'
+                  }`}
+                />
+              ))}
+            </div>
           </div>
 
           {/* Image feature for ②_master */}
