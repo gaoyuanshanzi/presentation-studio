@@ -98,6 +98,8 @@ export default function Home() {
   const [isPenMode, setIsPenMode] = useState(false);
   const [penColor, setPenColor] = useState('#facc15');
   const [penSize, setPenSize] = useState<'fine' | 'medium' | 'thick'>('fine');
+  const [undoTrigger, setUndoTrigger] = useState(0);
+  const [clearAllTrigger, setClearAllTrigger] = useState(0);
 
   // Master 1 & 2 Update Handlers
   const handleUpdateMaster1 = (updated: Partial<Slide['master1']>) => {
@@ -312,6 +314,8 @@ export default function Home() {
             penColor={penColor}
             penSize={penSize}
             clearTrigger={activeSlideId}
+            undoTrigger={undoTrigger}
+            clearAllTrigger={clearAllTrigger}
           />
 
           {/* Right Sidebar: Screen/Audio Recorder & Neon MP4 Storage */}
@@ -328,6 +332,8 @@ export default function Home() {
             onTogglePen={() => setIsPenMode((v) => !v)}
             onChangePenColor={setPenColor}
             onChangePenSize={setPenSize}
+            onUndoLastStroke={() => setUndoTrigger((v) => v + 1)}
+            onClearAllStrokes={() => setClearAllTrigger((v) => v + 1)}
           />
 
           {/* Image Search Modal */}

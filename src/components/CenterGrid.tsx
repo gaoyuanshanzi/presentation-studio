@@ -16,6 +16,8 @@ interface CenterGridProps {
   penSize?: 'fine' | 'medium' | 'thick';
   /** When this string changes, all drawing canvases are cleared */
   clearTrigger?: string;
+  undoTrigger?: number;
+  clearAllTrigger?: number;
 }
 
 export default function CenterGrid({
@@ -27,6 +29,8 @@ export default function CenterGrid({
   penColor = '#facc15',
   penSize = 'fine',
   clearTrigger,
+  undoTrigger,
+  clearAllTrigger,
 }: CenterGridProps) {
   return (
     <div className="flex-1 flex flex-col h-full overflow-y-auto p-3 md:p-4 gap-3 md:gap-4 bg-slate-100/70">
@@ -45,6 +49,8 @@ export default function CenterGrid({
             penColor={penColor}
             penSize={penSize}
             clearTrigger={clearTrigger}
+            undoTrigger={undoTrigger}
+            clearAllTrigger={clearAllTrigger}
           />
         </div>
 
@@ -61,6 +67,8 @@ export default function CenterGrid({
             penColor={penColor}
             penSize={penSize}
             clearTrigger={clearTrigger}
+            undoTrigger={undoTrigger}
+            clearAllTrigger={clearAllTrigger}
           />
         </div>
       </div>

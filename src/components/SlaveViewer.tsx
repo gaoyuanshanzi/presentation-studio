@@ -21,6 +21,10 @@ interface SlaveViewerProps {
   penSize?: 'fine' | 'medium' | 'thick';
   /** Changing this value clears the drawing canvas instantly */
   clearTrigger?: string;
+  /** Incrementing this number triggers Undo Last Stroke */
+  undoTrigger?: number;
+  /** Incrementing this number triggers Clear All Strokes */
+  clearAllTrigger?: number;
 }
 
 export default function SlaveViewer({
@@ -35,22 +39,45 @@ export default function SlaveViewer({
   penColor = '#facc15',
   penSize = 'fine',
   clearTrigger,
+  undoTrigger,
+  clearAllTrigger,
 }: SlaveViewerProps) {
   const hasBgImage = Boolean(data.bgImage);
   const hasContent = data.content.trim().length > 0;
 
-  // ── Drawing canvas refs ────────────────────────────────────────────────────
+  // ── Drawing canvas refs & stroke history for Undo ──────────────────────────
   const drawCanvasRef = useRef<HTMLCanvasElement>(null);
   const isDrawing = useRef(false);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
+  // Stack of ImageData snapshots before each stroke for Undo functionality
+  const strokeHistory = useRef<ImageData[]>([]);
 
-  // Clear canvas whenever the slide changes
+  // Clear canvas and history whenever clearTrigger or slide changes
   useEffect(() => {
     const canvas = drawCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
-  }, [clearTrigger]);
+    strokeHistory.current = [];
+  }, [clearTrigger, clearAllTrigger]);
+
+  // Undo last stroke action
+  useEffect(() => {
+    if (!undoTrigger) return;
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    if (strokeHistory.current.length > 0) {
+      const lastState = strokeHistory.current.pop();
+      if (lastState) {
+        ctx.putImageData(lastState, 0, 0);
+      }
+    } else {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
+  }, [undoTrigger]);
 
   // Resize drawing canvas to match container
   const containerRef = useRef<HTMLDivElement>(null);
@@ -82,6 +109,16 @@ export default function SlaveViewer({
   const onMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!isPenMode) return;
+      const canvas = drawCanvasRef.current;
+      if (canvas) {
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          // Push current canvas state to history stack before starting new stroke (limit to 30 steps)
+          const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+          strokeHistory.current.push(snapshot);
+          if (strokeHistory.current.length > 30) strokeHistory.current.shift();
+        }
+      }
       isDrawing.current = true;
       lastPos.current = getPos(e);
     },

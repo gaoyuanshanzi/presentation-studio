@@ -21,7 +21,8 @@ import {
   Pen,
   PenOff,
   Eraser,
-  Monitor
+  Monitor,
+  RotateCcw
 } from 'lucide-react';
 import { RecordingItem } from '@/types';
 import html2canvas from 'html2canvas';
@@ -39,6 +40,8 @@ interface RightSidebarProps {
   onTogglePen: () => void;
   onChangePenColor: (color: string) => void;
   onChangePenSize: (size: 'fine' | 'medium' | 'thick') => void;
+  onUndoLastStroke: () => void;
+  onClearAllStrokes: () => void;
 }
 
 const PEN_COLORS = [
@@ -65,6 +68,8 @@ export default function RightSidebar({
   onTogglePen,
   onChangePenColor,
   onChangePenSize,
+  onUndoLastStroke,
+  onClearAllStrokes,
 }: RightSidebarProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
@@ -526,6 +531,26 @@ export default function RightSidebar({
               두껍게 (12px)
             </button>
           </div>
+        </div>
+
+        {/* Eraser / Undo Buttons */}
+        <div className="grid grid-cols-2 gap-2 pt-1 border-t border-slate-200/80">
+          <button
+            onClick={onUndoLastStroke}
+            className="py-1.5 px-2 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-xs font-semibold text-slate-700 flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
+            title="마지막에 그린 선 1개 지우기"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-600" />
+            <span>직전 선 지우기</span>
+          </button>
+          <button
+            onClick={onClearAllStrokes}
+            className="py-1.5 px-2 bg-white hover:bg-red-50 border border-slate-200 hover:border-red-200 rounded-lg text-xs font-semibold text-slate-700 hover:text-red-600 flex items-center justify-center gap-1.5 shadow-sm transition-all active:scale-95"
+            title="현재 화면의 모든 드로잉 선 지우기"
+          >
+            <Trash2 className="w-3.5 h-3.5 text-red-500" />
+            <span>전체 선 지우기</span>
+          </button>
         </div>
 
         {isPenMode && (
