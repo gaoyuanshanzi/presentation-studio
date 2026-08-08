@@ -1,153 +1,147 @@
 import html2canvas from 'html2canvas';
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { Slide } from '@/types';
 
 /**
  * Renders a Slide into a combined 1920x1080 YouTube-standard resolution PNG canvas.
- * Left half (960x1080): ①_slave content (without UI badges/footers)
- * Right half (960x1080): ②_slave content (without UI badges/footers)
+ * Left half (960x1080): ①_slave content  |  Right half (960x1080): ②_slave content
+ * No UI badges, headers, or footer bars included.
  */
 export async function renderSlideToCombinedCanvas(slide: Slide): Promise<HTMLCanvasElement> {
+  const TOTAL_W = 1920;
+  const TOTAL_H = 1080;
+  const HALF_W = 960;
+
+  // ── Build a hidden off-screen container ─────────────────────────────────────
   const container = document.createElement('div');
-  container.style.position = 'fixed';
-  container.style.left = '-9999px';
-  container.style.top = '-9999px';
-  container.style.width = '1920px';
-  container.style.height = '1080px';
-  container.style.display = 'flex';
-  container.style.flexDirection = 'row';
-  container.style.backgroundColor = '#ffffff';
-  container.style.overflow = 'hidden';
-  container.style.zIndex = '-9999';
-
+  container.style.cssText = `
+    position: fixed;
+    left: -9999px;
+    top: -9999px;
+    width: ${TOTAL_W}px;
+    height: ${TOTAL_H}px;
+    display: flex;
+    flex-direction: row;
+    overflow: hidden;
+    z-index: -9999;
+    font-family: Inter, system-ui, sans-serif;
+  `;
   document.body.appendChild(container);
-
-  // Render React content into container
-  const root = ReactDOM.createRoot(container);
 
   const m1 = slide.master1;
   const m2 = slide.master2;
-  const m2HasBgImage = Boolean(m2.bgImage);
 
-  await new Promise<void>((resolve) => {
-    root.render(
-      <div style={{ width: '1920px', height: '1080px', display: 'flex', flexDirection: 'row' }}>
-        {/* Left Side: ①_slave (960x1080) */}
-        <div
-          style={{
-            width: '960px',
-            height: '1080px',
-            backgroundColor: m1.bgColor || '#ffffff',
-            color: m1.textColor || '#0f172a',
-            padding: '64px',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            boxSizing: 'border-box',
-            position: 'relative',
-            overflow: 'hidden'
-          }}
-        >
-          <div
-            className="slide-markdown-content"
-            style={{
-              width: '100%',
-              maxWidth: '800px',
-              fontSize: '28px',
-              lineHeight: 1.6
-            }}
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {m1.content}
-            </ReactMarkdown>
-          </div>
-        </div>
+  // ── Helper: create one slide panel (left or right) ─────────────────────────
+  function createPanel(data: typeof m1): HTMLDivElement {
+    const panel = document.createElement('div');
+    panel.style.cssText = `
+      width: ${HALF_W}px;
+      height: ${TOTAL_H}px;
+      background-color: ${data.bgColor || '#ffffff'};
+      color: ${data.textColor || '#0f172a'};
+      position: relative;
+      overflow: hidden;
+      box-sizing: border-box;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    `;
 
-        {/* Divider Line */}
-        <div style={{ width: '2px', height: '1080px', backgroundColor: 'rgba(0,0,0,0.06)' }} />
+    // Background image layer
+    if (data.bgImage) {
+      const bgLayer = document.createElement('div');
+      bgLayer.style.cssText = `
+        position: absolute;
+        inset: 0;
+        background-image: url(${data.bgImage});
+        background-size: cover;
+        background-position: center;
+        z-index: 0;
+      `;
+      const overlay = document.createElement('div');
+      overlay.style.cssText = `
+        position: absolute;
+        inset: 0;
+        background-color: rgba(15, 23, 42, 0.35);
+      `;
+      bgLayer.appendChild(overlay);
+      panel.appendChild(bgLayer);
+    }
 
-        {/* Right Side: ②_slave (960x1080) */}
-        <div
-          style={{
-            width: '960px',
-            height: '1080px',
-            backgroundColor: m2.bgColor || '#ffffff',
-            color: m2.textColor || '#0f172a',
-            padding: '64px',
-            display: 'flex',
-            flexDirection: 'column',
-            justifyContent: 'center',
-            alignItems: 'center',
-            boxSizing: 'border-box',
-            position: 'relative',
-            overflow: 'hidden'
-          }}
-        >
-          {m2HasBgImage && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                backgroundImage: `url(${m2.bgImage})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-                zIndex: 0
-              }}
-            >
-              <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(15, 23, 42, 0.35)' }} />
-            </div>
-          )}
+    // Content layer
+    const content = document.createElement('div');
+    content.style.cssText = `
+      position: relative;
+      z-index: 10;
+      width: 100%;
+      max-width: 800px;
+      padding: 48px;
+      box-sizing: border-box;
+      font-size: 28px;
+      line-height: 1.65;
+      color: ${data.bgImage ? '#ffffff' : (data.textColor || '#0f172a')};
+      ${data.bgImage ? `
+        background-color: rgba(15,23,42,0.52);
+        backdrop-filter: blur(12px);
+        border-radius: 20px;
+        border: 1px solid rgba(255,255,255,0.18);
+      ` : ''}
+    `;
 
-          <div
-            className="slide-markdown-content"
-            style={{
-              position: 'relative',
-              zIndex: 10,
-              width: '100%',
-              maxWidth: '800px',
-              fontSize: '28px',
-              lineHeight: 1.6,
-              ...(m2HasBgImage
-                ? {
-                    padding: '36px',
-                    backgroundColor: 'rgba(15, 23, 42, 0.55)',
-                    backdropFilter: 'blur(12px)',
-                    borderRadius: '24px',
-                    border: '1px solid rgba(255,255,255,0.2)',
-                    color: '#ffffff'
-                  }
-                : { color: m2.textColor || '#0f172a' })
-            }}
-          >
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {m2.content}
-            </ReactMarkdown>
-          </div>
-        </div>
-      </div>
-    );
+    // Convert markdown to basic HTML for rendering (simple inline pass)
+    const md = data.content || '';
+    if (md.trim()) {
+      // Simple markdown → HTML transforms for common patterns
+      const html = md
+        .replace(/^#{3} (.+)$/gm, '<h3 style="font-size:1.4em;font-weight:700;margin:0.4em 0">$1</h3>')
+        .replace(/^#{2} (.+)$/gm, '<h2 style="font-size:1.75em;font-weight:700;margin:0.4em 0">$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1 style="font-size:2.2em;font-weight:800;margin:0.3em 0">$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>')
+        .replace(/`(.+?)`/g, '<code style="background:rgba(0,0,0,0.1);padding:0.1em 0.3em;border-radius:4px">$1</code>')
+        .replace(/^> (.+)$/gm, '<blockquote style="border-left:4px solid #3b82f6;padding-left:1em;opacity:0.9">$1</blockquote>')
+        .replace(/^- (.+)$/gm, '<li style="margin:0.25em 0">$1</li>')
+        .replace(/(<li[^>]*>[\s\S]*?<\/li>[\s\S]*?)+/g, '<ul style="padding-left:1.5em;margin:0.5em 0">$&</ul>')
+        .replace(/\n\n/g, '<br/><br/>')
+        .replace(/\n(?!<)/g, '<br/>');
+      content.innerHTML = html;
+    }
+    // If content is empty → content div stays empty → only background shows
 
-    // Give browser time to lay out and load images
-    setTimeout(() => {
-      resolve();
-    }, 400);
-  });
+    panel.appendChild(content);
+    return panel;
+  }
 
-  // Capture clean 1920x1080 canvas
+  // Build left (①) and right (②) panels
+  const leftPanel = createPanel(m1);
+  const rightPanel = createPanel(m2);
+
+  // Thin divider line
+  const divider = document.createElement('div');
+  divider.style.cssText = `
+    width: 2px;
+    height: ${TOTAL_H}px;
+    background-color: rgba(0,0,0,0.06);
+    flex-shrink: 0;
+  `;
+
+  container.appendChild(leftPanel);
+  container.appendChild(divider);
+  container.appendChild(rightPanel);
+
+  // Wait for layout + images to load
+  await new Promise<void>((resolve) => setTimeout(resolve, 600));
+
+  // Capture
   const canvas = await html2canvas(container, {
-    width: 1920,
-    height: 1080,
+    width: TOTAL_W,
+    height: TOTAL_H,
     scale: 1,
     useCORS: true,
-    logging: false
+    logging: false,
+    allowTaint: true,
   });
 
   // Cleanup
-  root.unmount();
   document.body.removeChild(container);
 
   return canvas;
