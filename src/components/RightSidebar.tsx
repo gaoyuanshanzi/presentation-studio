@@ -44,23 +44,21 @@ export default function RightSidebar({
   const [recordingTime, setRecordingTime] = useState(0);
   const [isMicEnabled, setIsMicEnabled] = useState(true);
 
-  // Recording Modal state on stop
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [recordedBlob, setRecordedBlob] = useState<Blob | null>(null);
   const [recordedDataUrl, setRecordedDataUrl] = useState<string | null>(null);
   const [recordedDuration, setRecordedDuration] = useState(0);
 
-  // Preview Video Modal
   const [previewVideoUrl, setPreviewVideoUrl] = useState<string | null>(null);
   const [previewTitle, setPreviewTitle] = useState<string>('');
 
-  // Refs for recording logic
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const animFrameRef = useRef<number | null>(null);
+  // Ref so renderLoop closure can read the latest recording state without stale closure
+  const isRecordingRef = useRef(false);
 
-  // Timer counter
   useEffect(() => {
     if (isRecording && !isPaused) {
       timerRef.current = setInterval(() => {
@@ -74,7 +72,15 @@ export default function RightSidebar({
     };
   }, [isRecording, isPaused]);
 
-  // Canvas dual-slave video stream recording setup
+  // ── Hide / restore UI chrome elements (badges + footers) ───────────────────
+  const setUiVisibility = (visible: boolean) => {
+    const els = document.querySelectorAll<HTMLElement>('[data-export-ignore]');
+    els.forEach((el) => {
+      el.style.visibility = visible ? '' : 'hidden';
+    });
+  };
+
+  // ── Main recording start ────────────────────────────────────────────────────
   const startRecording = async () => {
     const slave1 = document.getElementById('slave-view-1');
     const slave2 = document.getElementById('slave-view-2');
@@ -85,13 +91,17 @@ export default function RightSidebar({
     }
 
     try {
-      // 1. Create a synthesis offscreen canvas for combined dual presentation
+      // Recording canvas: 1280 × 720 (YouTube HD)
+      const REC_W = 1280;
+      const REC_H = 720;
+      const HALF = REC_W / 2;
+
       const canvas = document.createElement('canvas');
-      canvas.width = 1280;
-      canvas.height = 720;
+      canvas.width = REC_W;
+      canvas.height = REC_H;
       const ctx = canvas.getContext('2d');
 
-      // 2. Setup AudioContext (Mic + System Audio node)
+      // Audio: Mic + silent anchor
       const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       const dest = audioCtx.createMediaStreamDestination();
 
@@ -102,76 +112,82 @@ export default function RightSidebar({
           const micSource = audioCtx.createMediaStreamSource(micStream);
           micSource.connect(dest);
         } catch (e) {
-          console.warn('Microphone stream access unavailable:', e);
+          console.warn('Microphone stream unavailable:', e);
         }
       }
-
-      // Add simple synth background oscillator for audio track test if mic not present
       if (!micStream) {
+        // Silent oscillator keeps audio track alive
         const osc = audioCtx.createOscillator();
         const gain = audioCtx.createGain();
-        gain.gain.value = 0.001; // subtle silent audio stream anchor
+        gain.gain.value = 0.0001;
         osc.connect(gain);
         gain.connect(dest);
         osc.start();
       }
 
-      // 3. Canvas render loop at 30 FPS
-      const renderLoop = async () => {
+      // Render loop — captures clean (no UI chrome) at ~2 fps
+      let lastCapture = 0;
+      const INTERVAL_MS = 500;
+
+      const renderLoop = async (timestamp: number) => {
         if (!ctx) return;
-        try {
-          // Render white background
-          ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-          // Capture slave 1 & 2 snapshots
-          const c1 = await html2canvas(slave1, { scale: 1, useCORS: true, logging: false });
-          const c2 = await html2canvas(slave2, { scale: 1, useCORS: true, logging: false });
+        if (timestamp - lastCapture >= INTERVAL_MS) {
+          lastCapture = timestamp;
+          try {
+            // 1. Hide badges & footers
+            setUiVisibility(false);
 
-          // Draw side by side
-          ctx.drawImage(c1, 20, 20, 610, 680);
-          ctx.drawImage(c2, 650, 20, 610, 680);
+            // 2. Capture both slave panels — now clean, no badges/footers
+            const [c1, c2] = await Promise.all([
+              html2canvas(slave1, { scale: 1, useCORS: true, logging: false, allowTaint: true }),
+              html2canvas(slave2, { scale: 1, useCORS: true, logging: false, allowTaint: true }),
+            ]);
 
-          // Watermark / timestamp indicator
-          ctx.fillStyle = '#2563eb';
-          ctx.font = 'bold 16px Inter, sans-serif';
-          ctx.fillText('Matrix Presentation Studio • White Mode Live Record', 40, 50);
-        } catch (err) {
-          // Fallback rendering
+            // 3. Restore UI chrome
+            setUiVisibility(true);
+
+            // 4. Compose side-by-side onto recording canvas
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, REC_W, REC_H);
+            ctx.drawImage(c1, 0, 0, HALF, REC_H);
+            ctx.drawImage(c2, HALF, 0, HALF, REC_H);
+
+            // Thin centre line
+            ctx.fillStyle = 'rgba(0,0,0,0.08)';
+            ctx.fillRect(HALF - 1, 0, 2, REC_H);
+          } catch {
+            setUiVisibility(true); // always restore
+          }
         }
 
-        if (isRecording) {
+        if (isRecordingRef.current) {
           animFrameRef.current = requestAnimationFrame(renderLoop);
         }
       };
 
-      // 4. Capture canvas stream and combine audio
+      // MediaRecorder @ 4 Mbps VP9
       const canvasStream = canvas.captureStream(30);
-      const combinedTracks = [
+      const finalStream = new MediaStream([
         ...canvasStream.getVideoTracks(),
-        ...dest.stream.getAudioTracks()
-      ];
-      const finalStream = new MediaStream(combinedTracks);
+        ...dest.stream.getAudioTracks(),
+      ]);
 
-      // 5. MediaRecorder initialization
-      let mimeType = 'video/mp4';
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/webm;codecs=vp9,opus';
-      }
-      if (!MediaRecorder.isTypeSupported(mimeType)) {
-        mimeType = 'video/webm';
-      }
+      let mimeType = 'video/webm;codecs=vp9,opus';
+      if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
 
-      const recorder = new MediaRecorder(finalStream, { mimeType });
+      const recorder = new MediaRecorder(finalStream, {
+        mimeType,
+        videoBitsPerSecond: 4_000_000,
+      });
       chunksRef.current = [];
 
       recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          chunksRef.current.push(e.data);
-        }
+        if (e.data.size > 0) chunksRef.current.push(e.data);
       };
 
       recorder.onstop = () => {
+        setUiVisibility(true);
         const blob = new Blob(chunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.onloadend = () => {
@@ -181,21 +197,20 @@ export default function RightSidebar({
           setShowSaveModal(true);
         };
         reader.readAsDataURL(blob);
-
         if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current);
       };
 
       recorder.start(500);
       mediaRecorderRef.current = recorder;
+      isRecordingRef.current = true;
 
       setIsRecording(true);
       setIsPaused(false);
       setRecordingTime(0);
 
-      // Start render loop
-      renderLoop();
+      requestAnimationFrame(renderLoop);
     } catch (err) {
-      console.error('Recording initialization error:', err);
+      console.error('Recording error:', err);
       alert('화면 및 음성 녹화 시작 중 오류가 발생했습니다.');
     }
   };
@@ -214,24 +229,23 @@ export default function RightSidebar({
 
   const stopRecording = () => {
     if (mediaRecorderRef.current && isRecording) {
+      isRecordingRef.current = false;
       mediaRecorderRef.current.stop();
       setIsRecording(false);
       setIsPaused(false);
     }
   };
 
-  // Local Save
   const handleSaveLocalMp4 = () => {
     if (recordedDataUrl) {
       const a = document.createElement('a');
       a.href = recordedDataUrl;
-      a.download = `Presentation_Recording_${new Date().getTime()}.mp4`;
+      a.download = `Presentation_Recording_${new Date().getTime()}.webm`;
       a.click();
       setShowSaveModal(false);
     }
   };
 
-  // Neon DB Save
   const handleSaveNeonMp4 = async () => {
     if (recordedDataUrl) {
       const title = `녹화 동영상_${new Date().toLocaleTimeString('ko-KR')}`;
@@ -259,7 +273,7 @@ export default function RightSidebar({
           </div>
           <div>
             <h2 className="font-bold text-slate-800 text-sm">화면/음성 녹화 센터</h2>
-            <p className="text-[10px] text-slate-500 font-medium">Dual Slave Combined MP4</p>
+            <p className="text-[10px] text-slate-500 font-medium">1280×720 HD • 배지 없는 클린 녹화</p>
           </div>
         </div>
 
@@ -278,7 +292,6 @@ export default function RightSidebar({
 
       {/* Recording Control Box */}
       <div className="p-4 border-b border-slate-200 bg-white space-y-4">
-        {/* Timer & Visualizer */}
         <div className="p-4 bg-slate-900 text-white rounded-2xl flex flex-col items-center justify-center space-y-2 shadow-inner">
           <div className="flex items-center gap-2">
             <span
@@ -290,14 +303,12 @@ export default function RightSidebar({
               {formatTime(recordingTime)}
             </span>
           </div>
-
           <div className="text-[11px] text-slate-400 font-medium flex items-center gap-2">
             <span>①_slave + ②_slave 합성 녹화</span>
             <Volume2 className="w-3 h-3 text-blue-400" />
           </div>
         </div>
 
-        {/* Recording Action Controller Buttons */}
         <div className="grid grid-cols-3 gap-2">
           {!isRecording ? (
             <button
@@ -322,34 +333,31 @@ export default function RightSidebar({
                 className="col-span-2 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl font-bold text-xs flex items-center justify-center gap-1.5 shadow-md transition-all"
               >
                 <Square className="w-4 h-4 fill-white" />
-                <span>녹화 종료 & MP4 저장</span>
+                <span>녹화 종료 & 저장</span>
               </button>
             </>
           )}
         </div>
       </div>
 
-      {/* MP4 Neon DB Directory Header */}
+      {/* MP4 Directory Header */}
       <div className="p-3 border-b border-slate-200 bg-slate-50/50 flex items-center justify-between">
         <span className="font-bold text-xs text-slate-700 flex items-center gap-1.5">
           <Film className="w-4 h-4 text-indigo-600" />
-          Neon DB MP4 저장소 Directory
+          Neon DB 녹화 저장소 Directory
         </span>
-        <button
-          onClick={onRefreshRecordings}
-          className="text-[11px] text-indigo-600 font-semibold hover:underline"
-        >
+        <button onClick={onRefreshRecordings} className="text-[11px] text-indigo-600 font-semibold hover:underline">
           새로고침
         </button>
       </div>
 
-      {/* MP4 List Content */}
+      {/* MP4 List */}
       <div className="flex-1 overflow-y-auto p-3 space-y-2.5 bg-slate-50/30">
         {neonRecordings.length === 0 ? (
           <div className="p-6 text-center text-slate-400 text-xs border-2 border-dashed border-slate-200 rounded-xl bg-white space-y-2">
             <Film className="w-8 h-8 mx-auto stroke-[1.5] text-slate-300" />
-            <p>저장된 MP4 동영상이 없습니다.</p>
-            <p className="text-[10px] text-slate-400">녹화 종료 시 Neon DB에 동영상을 저장할 수 있습니다.</p>
+            <p>저장된 녹화 영상이 없습니다.</p>
+            <p className="text-[10px] text-slate-400">녹화 종료 시 Neon DB에 저장할 수 있습니다.</p>
           </div>
         ) : (
           neonRecordings.map((rec) => (
@@ -363,39 +371,29 @@ export default function RightSidebar({
                   {formatTime(rec.duration)}
                 </span>
               </div>
-
               <div className="text-[10px] text-slate-400">
                 {rec.createdAt ? new Date(rec.createdAt).toLocaleString() : '녹화 완료'}
               </div>
-
               <div className="flex items-center gap-1.5 pt-1">
-                {/* Preview Video Button */}
                 <button
-                  onClick={() => {
-                    setPreviewVideoUrl(rec.videoUrl);
-                    setPreviewTitle(rec.title);
-                  }}
+                  onClick={() => { setPreviewVideoUrl(rec.videoUrl); setPreviewTitle(rec.title); }}
                   className="flex-1 py-1 px-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold rounded-lg flex items-center justify-center gap-1 transition-all"
                 >
                   <Maximize2 className="w-3 h-3" />
                   <span>재생</span>
                 </button>
-
-                {/* Local Download */}
                 <a
                   href={rec.videoUrl}
-                  download={`${rec.title}.mp4`}
+                  download={`${rec.title}.webm`}
                   className="p-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg transition-all"
-                  title="로컬 이동 저장 (다운로드)"
+                  title="로컬 다운로드"
                 >
                   <Download className="w-3.5 h-3.5" />
                 </a>
-
-                {/* Delete Complete from DB */}
                 <button
                   onClick={() => onDeleteRecordingFromNeonDb(rec.id)}
                   className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                  title="Neon DB에서 완전 삭제"
+                  title="DB에서 완전 삭제"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
@@ -405,7 +403,7 @@ export default function RightSidebar({
         )}
       </div>
 
-      {/* Recording Complete Modal */}
+      {/* Recording Save Modal */}
       {showSaveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="w-full max-w-sm bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-4">
@@ -414,20 +412,18 @@ export default function RightSidebar({
                 <Sparkles className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-bold text-slate-800 text-base">녹화 완료! MP4 저장 선택</h3>
-                <p className="text-xs text-slate-500">녹화 시간: {formatTime(recordedDuration)}</p>
+                <h3 className="font-bold text-slate-800 text-base">녹화 완료! 저장 선택</h3>
+                <p className="text-xs text-slate-500">녹화 시간: {formatTime(recordedDuration)} · 1280×720 HD</p>
               </div>
             </div>
-
             <div className="space-y-2 pt-2">
               <button
                 onClick={handleSaveLocalMp4}
                 className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md"
               >
                 <Download className="w-4 h-4" />
-                <span>로컬 PC에 MP4 저장</span>
+                <span>로컬 PC에 저장 (.webm)</span>
               </button>
-
               <button
                 onClick={handleSaveNeonMp4}
                 className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-500/20"
@@ -436,7 +432,6 @@ export default function RightSidebar({
                 <span>Neon DB MP4 테이블로 저장</span>
               </button>
             </div>
-
             <button
               onClick={() => setShowSaveModal(false)}
               className="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-medium text-center"
@@ -447,26 +442,18 @@ export default function RightSidebar({
         </div>
       )}
 
-      {/* Video Player Modal */}
+      {/* Video Preview Modal */}
       {previewVideoUrl && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
           <div className="w-full max-w-3xl bg-white rounded-2xl overflow-hidden shadow-2xl border border-slate-200">
             <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
               <span className="font-bold text-sm truncate">{previewTitle}</span>
-              <button
-                onClick={() => setPreviewVideoUrl(null)}
-                className="p-1 text-slate-400 hover:text-white rounded-lg"
-              >
+              <button onClick={() => setPreviewVideoUrl(null)} className="p-1 text-slate-400 hover:text-white rounded-lg">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <div className="p-4 bg-black flex justify-center">
-              <video
-                src={previewVideoUrl}
-                controls
-                autoPlay
-                className="max-h-[70vh] rounded-lg"
-              />
+              <video src={previewVideoUrl} controls autoPlay className="max-h-[70vh] rounded-lg" />
             </div>
           </div>
         </div>
