@@ -116,6 +116,7 @@ export default function MasterEditor({
                 { name: '검정', hex: '#0f172a', bg: 'bg-slate-900' },
                 { name: '파랑', hex: '#2563eb', bg: 'bg-blue-600' },
                 { name: '빨강', hex: '#dc2626', bg: 'bg-red-600' },
+                { name: '노랑', hex: '#eab308', bg: 'bg-yellow-500' },
                 { name: '초록', hex: '#059669', bg: 'bg-emerald-600' },
                 { name: '보라', hex: '#7c3aed', bg: 'bg-purple-600' },
                 { name: '주황', hex: '#ea580c', bg: 'bg-orange-600' },
