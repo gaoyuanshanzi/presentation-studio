@@ -197,28 +197,34 @@ export default function RightSidebar({
             const r1 = c1El.getBoundingClientRect();
             const r2 = c2El.getBoundingClientRect();
 
-            // Calculate precise scaling factoring in devicePixelRatio and browser window frame offset
-            const dpr = window.devicePixelRatio || 1;
-            const videoW = videoEl.videoWidth;
-            const videoH = videoEl.videoHeight;
+            // Calculate precise scaling between screen resolution and browser viewport
+            const screenW = window.screen.width || 1920;
+            const screenH = window.screen.height || 1080;
 
-            // Compute exact scale ratio between screen stream and viewport CSS coordinates
-            const scaleX = videoW / (window.innerWidth * dpr);
-            const scaleY = videoH / (window.innerHeight * dpr);
+            const videoW = videoEl.videoWidth || screenW;
+            const videoH = videoEl.videoHeight || screenH;
 
-            // Compute top offset caused by browser title bar / URL bar when sharing full screen/window
-            const windowTopOffset = (window.screenY || 0) + (window.outerHeight - window.innerHeight);
+            // Scale factors from screen pixels to video stream resolution
+            const scaleX = videoW / screenW;
+            const scaleY = videoH / screenH;
 
-            // Source crop coordinates in video stream pixels (scaled by DPR)
-            const sx1 = Math.max(0, r1.left * dpr * scaleX);
-            const sy1 = Math.max(0, r1.top * dpr * scaleY);
-            const sw1 = r1.width * dpr * scaleX;
-            const sh1 = r1.height * dpr * scaleY;
+            // Compute exact top offset of browser content area relative to screen (Titlebar + Tab bar + Address bar)
+            // window.screenY / screenTop is the top position of browser window on monitor
+            // (window.outerHeight - window.innerHeight) is the height of browser top UI (tabs + address bar)
+            const browserTopUIHeight = Math.max(0, window.outerHeight - window.innerHeight);
+            const contentTopOnScreen = (window.screenY || window.screenTop || 0) + browserTopUIHeight;
+            const contentLeftOnScreen = (window.screenX || window.screenLeft || 0);
 
-            const sx2 = Math.max(0, r2.left * dpr * scaleX);
-            const sy2 = Math.max(0, r2.top * dpr * scaleY);
-            const sw2 = r2.width * dpr * scaleX;
-            const sh2 = r2.height * dpr * scaleY;
+            // Compute precise crop coordinates in video stream pixel space
+            const sx1 = Math.max(0, (contentLeftOnScreen + r1.left) * scaleX);
+            const sy1 = Math.max(0, (contentTopOnScreen + r1.top) * scaleY);
+            const sw1 = r1.width * scaleX;
+            const sh1 = r1.height * scaleY;
+
+            const sx2 = Math.max(0, (contentLeftOnScreen + r2.left) * scaleX);
+            const sy2 = Math.max(0, (contentTopOnScreen + r2.top) * scaleY);
+            const sw2 = r2.width * scaleX;
+            const sh2 = r2.height * scaleY;
 
             // Draw ①_slave crop (left side)
             ctx.drawImage(videoEl, sx1, sy1, sw1, sh1, 0, 0, HALF, REC_H);
