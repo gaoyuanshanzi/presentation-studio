@@ -197,34 +197,34 @@ export default function RightSidebar({
             const r1 = c1El.getBoundingClientRect();
             const r2 = c2El.getBoundingClientRect();
 
-            const scaleX = videoEl.videoWidth / window.innerWidth;
-            const scaleY = videoEl.videoHeight / window.innerHeight;
+            // Calculate precise scaling factoring in devicePixelRatio and browser window frame offset
+            const dpr = window.devicePixelRatio || 1;
+            const videoW = videoEl.videoWidth;
+            const videoH = videoEl.videoHeight;
+
+            // Compute exact scale ratio between screen stream and viewport CSS coordinates
+            const scaleX = videoW / (window.innerWidth * dpr);
+            const scaleY = videoH / (window.innerHeight * dpr);
+
+            // Compute top offset caused by browser title bar / URL bar when sharing full screen/window
+            const windowTopOffset = (window.screenY || 0) + (window.outerHeight - window.innerHeight);
+
+            // Source crop coordinates in video stream pixels (scaled by DPR)
+            const sx1 = Math.max(0, r1.left * dpr * scaleX);
+            const sy1 = Math.max(0, r1.top * dpr * scaleY);
+            const sw1 = r1.width * dpr * scaleX;
+            const sh1 = r1.height * dpr * scaleY;
+
+            const sx2 = Math.max(0, r2.left * dpr * scaleX);
+            const sy2 = Math.max(0, r2.top * dpr * scaleY);
+            const sw2 = r2.width * dpr * scaleX;
+            const sh2 = r2.height * dpr * scaleY;
 
             // Draw ①_slave crop (left side)
-            ctx.drawImage(
-              videoEl,
-              r1.left * scaleX,
-              r1.top * scaleY,
-              r1.width * scaleX,
-              r1.height * scaleY,
-              0,
-              0,
-              HALF,
-              REC_H
-            );
+            ctx.drawImage(videoEl, sx1, sy1, sw1, sh1, 0, 0, HALF, REC_H);
 
             // Draw ②_slave crop (right side)
-            ctx.drawImage(
-              videoEl,
-              r2.left * scaleX,
-              r2.top * scaleY,
-              r2.width * scaleX,
-              r2.height * scaleY,
-              HALF,
-              0,
-              HALF,
-              REC_H
-            );
+            ctx.drawImage(videoEl, sx2, sy2, sw2, sh2, HALF, 0, HALF, REC_H);
           } else {
             // Fallback html2canvas composite
             try {
