@@ -4,7 +4,7 @@ import React from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { SlideContent } from '@/types';
-import { Sparkles, Image as ImageIcon } from 'lucide-react';
+import { Image as ImageIcon } from 'lucide-react';
 
 interface SlaveViewerProps {
   id: string;
@@ -13,6 +13,8 @@ interface SlaveViewerProps {
   badgeColor: string;
   data: SlideContent;
   isRecordingTarget?: boolean;
+  /** When false and content is empty, shows only background (no placeholder hint box). Default: true */
+  showPlaceholder?: boolean;
 }
 
 export default function SlaveViewer({
@@ -21,7 +23,8 @@ export default function SlaveViewer({
   badgeText,
   badgeColor,
   data,
-  isRecordingTarget = true
+  isRecordingTarget = true,
+  showPlaceholder = true
 }: SlaveViewerProps) {
   const hasBgImage = Boolean(data.bgImage);
 
@@ -30,8 +33,11 @@ export default function SlaveViewer({
       id={id}
       className="relative flex flex-col h-full bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden transition-all group select-none"
     >
-      {/* Top Header Badge */}
-      <div className="absolute top-3 left-3 z-20 flex items-center gap-2 pointer-events-none">
+      {/* Top Header Badge - Excluded during PNG Export */}
+      <div
+        data-export-ignore="true"
+        className="export-ignore-ui absolute top-3 left-3 z-20 flex items-center gap-2 pointer-events-none"
+      >
         <span className={`px-2.5 py-0.5 text-xs font-bold rounded-md shadow-sm ${badgeColor}`}>
           {badgeText}
         </span>
@@ -72,17 +78,20 @@ export default function SlaveViewer({
                 {data.content}
               </ReactMarkdown>
             </div>
-          ) : (
-            <div className="h-48 flex flex-col items-center justify-center text-slate-400 gap-2 border-2 border-dashed border-slate-200/60 rounded-xl">
-              <Sparkles className="w-8 h-8 opacity-40" />
-              <p className="text-sm font-medium">마크다운을 입력하면 실시간으로 렌더링됩니다.</p>
+          ) : showPlaceholder ? (
+            // ①_slave: show subtle hint when empty
+            <div className="h-48 flex flex-col items-center justify-center text-slate-300 gap-2 border-2 border-dashed border-slate-200/40 rounded-xl">
+              <p className="text-xs font-medium opacity-60">마크다운을 입력하면 실시간으로 렌더링됩니다.</p>
             </div>
-          )}
+          ) : null /* ②_slave with no content: show only clean background */}
         </div>
       </div>
 
-      {/* Bottom Footer Info Bar */}
-      <div className="px-4 py-1.5 bg-slate-50/80 backdrop-blur-sm border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400 z-20">
+      {/* Bottom Footer Info Bar - Excluded during PNG Export */}
+      <div
+        data-export-ignore="true"
+        className="export-ignore-ui px-4 py-1.5 bg-slate-50/80 backdrop-blur-sm border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400 z-20"
+      >
         <span className="flex items-center gap-1 font-mono">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
           LIVE SYNCED

@@ -21,6 +21,8 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 import html2canvas from 'html2canvas';
 
+import { renderSlideToCombinedCanvas } from '@/lib/exporter';
+
 interface LeftSidebarProps {
   slides: Slide[];
   activeSlideId: string;
@@ -65,29 +67,25 @@ export default function LeftSidebar({
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Generate Zip containing high-res rendered PNGs and raw markdown slides.json
+  // Generate Zip containing high-res 1920x1080 combined YouTube-resolution PNGs and raw markdown slides.json
   const generateProjectZip = async () => {
     setIsExporting(true);
     try {
       const zip = new JSZip();
       const imagesFolder = zip.folder('rendered_slides');
 
-      // Render active elements or generate canvas images
-      const slave1 = document.getElementById('slave-view-1');
-      const slave2 = document.getElementById('slave-view-2');
-
-      if (slave1 && slave2 && imagesFolder) {
-        try {
-          const canvas1 = await html2canvas(slave1, { scale: 2, useCORS: true, logging: false });
-          const canvas2 = await html2canvas(slave2, { scale: 2, useCORS: true, logging: false });
-
-          const imgData1 = canvas1.toDataURL('image/png').split(',')[1];
-          const imgData2 = canvas2.toDataURL('image/png').split(',')[1];
-
-          imagesFolder.file(`slide_active_slave1.png`, imgData1, { base64: true });
-          imagesFolder.file(`slide_active_slave2.png`, imgData2, { base64: true });
-        } catch (e) {
-          console.warn('Canvas rendering notice:', e);
+      // Render every slide in project into a combined 1920x1080 YouTube resolution PNG (without UI badges)
+      if (imagesFolder) {
+        for (let i = 0; i < slides.length; i++) {
+          const slide = slides[i];
+          try {
+            const canvas = await renderSlideToCombinedCanvas(slide);
+            const imgData = canvas.toDataURL('image/png').split(',')[1];
+            const pageNumStr = String(i + 1).padStart(2, '0');
+            imagesFolder.file(`slide_${pageNumStr}_combined_1920x1080.png`, imgData, { base64: true });
+          } catch (e) {
+            console.warn(`Canvas rendering error for slide page ${i + 1}:`, e);
+          }
         }
       }
 

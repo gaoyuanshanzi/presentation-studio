@@ -41,6 +41,7 @@ export default function CenterGrid({
             badgeText="②_slave"
             badgeColor="bg-indigo-600 text-white"
             data={currentSlide.master2}
+            showPlaceholder={false}
           />
         </div>
       </div>
