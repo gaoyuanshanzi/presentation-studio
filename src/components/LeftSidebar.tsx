@@ -25,26 +25,8 @@ import JSZip from 'jszip';
 import { saveAs } from 'file-saver';
 
 import { renderSlideToCombinedCanvas } from '@/lib/exporter';
-
-// Watermark image URLs (SVG-based, embedded)
-// Korean watermark: bottom-left small logo text
-const WATERMARK_KO_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="60" viewBox="0 0 320 60">
-  <rect width="320" height="60" rx="6" fill="#1e293b" fill-opacity="0.75"/>
-  <text x="12" y="22" font-family="'Noto Sans KR', sans-serif" font-size="13" font-weight="700" fill="#f1f5f9">Presentation Matrix</text>
-  <text x="12" y="42" font-family="'Noto Sans KR', sans-serif" font-size="11" fill="#94a3b8">© 프레젠테이션 스튜디오  |  무단복제 금지</text>
-  <rect x="0" y="0" width="4" height="60" rx="2" fill="#3b82f6"/>
-</svg>`;
-
-const WATERMARK_EN_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="60" viewBox="0 0 320 60">
-  <rect width="320" height="60" rx="6" fill="#1e293b" fill-opacity="0.75"/>
-  <text x="12" y="22" font-family="'Inter', sans-serif" font-size="13" font-weight="700" fill="#f1f5f9">Presentation Matrix Studio</text>
-  <text x="12" y="42" font-family="'Inter', sans-serif" font-size="11" fill="#94a3b8">© Unauthorized reproduction prohibited</text>
-  <rect x="0" y="0" width="4" height="60" rx="2" fill="#3b82f6"/>
-</svg>`;
-
-function svgToDataUrl(svg: string) {
-  return 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(svg)));
-}
+import { WATERMARK_KO_BASE64 } from './watermarkKoData';
+import { WATERMARK_EN_BASE64 } from './watermarkEnData';
 
 interface LeftSidebarProps {
   slides: Slide[];
@@ -139,15 +121,17 @@ export default function LeftSidebar({
   const drawWatermarkOnCanvas = (canvas: HTMLCanvasElement, lang: 'ko' | 'en') => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return canvas;
-    const wmSvg = lang === 'ko' ? WATERMARK_KO_SVG : WATERMARK_EN_SVG;
-    const wmDataUrl = svgToDataUrl(wmSvg);
+    const wmDataUrl = lang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64;
     return new Promise<HTMLCanvasElement>((resolve) => {
       const img = new window.Image();
       img.onload = () => {
-        const wmW = 320;
-        const wmH = 60;
-        const x = 20;
-        const y = canvas.height - wmH - 16;
+        // Calculate appropriate size maintaining aspect ratio
+        const maxW = 340;
+        const aspect = img.width > 0 ? img.height / img.width : 0.25;
+        const wmW = Math.min(maxW, img.width || maxW);
+        const wmH = wmW * aspect;
+        const x = 24;
+        const y = canvas.height - wmH - 24;
         ctx.drawImage(img, x, y, wmW, wmH);
         resolve(canvas);
       };
@@ -694,12 +678,12 @@ export default function LeftSidebar({
                   </div>
 
                   {/* Watermark Preview */}
-                  <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 bg-slate-800 p-3">
+                  <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 p-3">
                     <p className="text-[10px] text-slate-400 mb-2">워터마크 미리보기:</p>
                     <img
-                      src={svgToDataUrl(watermarkLang === 'ko' ? WATERMARK_KO_SVG : WATERMARK_EN_SVG)}
+                      src={watermarkLang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64}
                       alt="watermark preview"
-                      className="w-full max-w-[260px] rounded-lg"
+                      className="w-full max-w-[260px] rounded-lg object-contain"
                     />
                   </div>
                 </div>
