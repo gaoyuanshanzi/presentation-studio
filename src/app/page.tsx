@@ -178,6 +178,12 @@ export default function Home() {
     }
   };
 
+  // Reorder Slides Handler
+  const handleReorderSlides = (reordered: Slide[]) => {
+    setSlides(reordered);
+    // Keep activeSlideId unchanged (it stays valid after reorder)
+  };
+
   // Import Project Handler
   const handleImportProject = (importedSlides: Slide[], name: string) => {
     if (importedSlides.length > 0) {
@@ -293,6 +299,7 @@ export default function Home() {
             onAddSlide={handleAddSlide}
             onDuplicateSlide={handleDuplicateSlide}
             onDeleteSlide={handleDeleteSlide}
+            onReorderSlides={handleReorderSlides}
             onImportProject={handleImportProject}
             projectName={projectName}
             setProjectName={setProjectName}
