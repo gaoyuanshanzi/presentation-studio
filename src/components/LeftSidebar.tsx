@@ -21,7 +21,8 @@ import {
   Stamp,
   X,
   CheckSquare,
-  Square
+  Square,
+  FileType
 } from 'lucide-react';
 import { Slide, Project } from '@/types';
 import JSZip from 'jszip';
@@ -122,30 +123,53 @@ export default function LeftSidebar({
     setDragOverIndex(null);
   };
 
-  // ── Watermark Helper ───────────────────────────────────────────────
-  const drawWatermarkOnCanvas = (canvas: HTMLCanvasElement, lang: 'ko' | 'en') => {
+  // ── Robust Watermark Helper ─────────────────────────────────────────
+  const drawWatermarkOnCanvas = (canvas: HTMLCanvasElement, lang: 'ko' | 'en'): Promise<HTMLCanvasElement> => {
     const ctx = canvas.getContext('2d');
-    if (!ctx) return canvas;
+    if (!ctx) return Promise.resolve(canvas);
     const wmDataUrl = lang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64;
     return new Promise<HTMLCanvasElement>((resolve) => {
-      const img = new window.Image();
+      const img = new Image();
       img.onload = () => {
-        const maxW = 360;
-        const aspect = img.width > 0 ? img.height / img.width : 0.25;
-        const wmW = Math.min(maxW, img.width || maxW);
-        const wmH = wmW * aspect;
-        const x = 24;
-        const y = canvas.height - wmH - 24;
-        ctx.drawImage(img, x, y, wmW, wmH);
+        // High visibility dimensions on 1920x1080 canvas
+        const targetW = 440;
+        const aspect = img.height > 0 ? img.height / img.width : 0.25;
+        const targetH = targetW * aspect;
+        const padding = 32;
+        const x = padding;
+        const y = canvas.height - targetH - padding;
+
+        ctx.save();
+        // Background container badge for max contrast
+        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
+        const bgPad = 14;
+        if (typeof ctx.roundRect === 'function') {
+          ctx.beginPath();
+          ctx.roundRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2, 14);
+          ctx.fill();
+        } else {
+          ctx.fillRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2);
+        }
+
+        // Draw watermark image
+        ctx.drawImage(img, x, y, targetW, targetH);
+        ctx.restore();
+
         resolve(canvas);
       };
-      img.onerror = () => resolve(canvas);
+      img.onerror = (err) => {
+        console.error('Watermark load failed:', err);
+        resolve(canvas);
+      };
       img.src = wmDataUrl;
     });
   };
 
   // ── HTML Export Generator ──────────────────────────────────────────
-  const generateHtmlExport = (slideImages: { page: number; dataUrl: string }[]): string => {
+  const generateHtmlExport = (
+    slideImages: { page: number; dataUrl: string }[],
+    projectMeta: any
+  ): string => {
     const slideHtml = slideImages
       .map(
         ({ page, dataUrl }) => `
@@ -158,6 +182,8 @@ export default function LeftSidebar({
       )
       .join('\n');
 
+    const jsonMetaString = JSON.stringify(projectMeta);
+
     return `<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -167,7 +193,7 @@ export default function LeftSidebar({
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:#0f172a; color:#f1f5f9; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
-    .header { background:#1e293b; color:#f1f5f9; padding:20px 32px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #334155; sticky; top:0; z-index:100; }
+    .header { background:#1e293b; color:#f1f5f9; padding:20px 32px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #334155; position:sticky; top:0; z-index:100; }
     .header h1 { font-size:20px; font-weight:700; }
     .header p { font-size:12px; color:#94a3b8; margin-top:2px; }
     .slides-container { max-width:1280px; margin:0 auto; padding:40px 20px; display:flex; flex-direction:column; gap:40px; }
@@ -193,11 +219,15 @@ export default function LeftSidebar({
   <div class="nav">
     <a href="#slide-1">↑ 처음으로</a>
   </div>
+  <!-- Embedded Presentation Matrix Slide Metadata for Re-import -->
+  <script id="presentation-matrix-data" type="application/json">
+    ${jsonMetaString}
+  </script>
 </body>
 </html>`;
   };
 
-  // ── Core Export Function (Triggered when user clicks Download/Save in modal) ──
+  // ── Core Export Process ──
   const executeExportProcess = async (): Promise<{ blob: Blob | null; zipBase64: string | null; htmlContent: string | null }> => {
     const zip = new JSZip();
     const imagesFolder = zip.folder('rendered_slides');
@@ -208,10 +238,10 @@ export default function LeftSidebar({
       try {
         let canvas = await renderSlideToCombinedCanvas(slide);
         if (watermarkEnabled) {
-          canvas = (await drawWatermarkOnCanvas(canvas, watermarkLang)) as HTMLCanvasElement;
+          canvas = await drawWatermarkOnCanvas(canvas, watermarkLang);
         }
-        const imgData = canvas.toDataURL('image/png').split(',')[1];
         const dataUrl = canvas.toDataURL('image/png');
+        const imgData = dataUrl.split(',')[1];
         const pageNumStr = String(i + 1).padStart(2, '0');
         if (imagesFolder) {
           imagesFolder.file(`slide_${pageNumStr}_combined_1920x1080.png`, imgData, { base64: true });
@@ -222,7 +252,6 @@ export default function LeftSidebar({
       }
     }
 
-    // Add slides.json
     const projectMeta = {
       name: projectName || 'Untitled Presentation',
       exportedAt: new Date().toISOString(),
@@ -233,7 +262,7 @@ export default function LeftSidebar({
 
     let htmlContent: string | null = null;
     if (exportFormats.html) {
-      htmlContent = generateHtmlExport(slideImages);
+      htmlContent = generateHtmlExport(slideImages, projectMeta);
       zip.file('index.html', htmlContent);
     }
 
@@ -290,33 +319,58 @@ export default function LeftSidebar({
     }
   };
 
-  // Local Zip File Import
+  // ── Import Handler (Supports ZIP and HTML Files) ─────────────────────
   const handleFileImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     setIsImporting(true);
     try {
-      const zip = await JSZip.loadAsync(file);
-      const slidesJsonFile = zip.file('slides.json');
+      const fileNameLower = file.name.toLowerCase();
 
-      if (!slidesJsonFile) {
-        alert('올바른 프로젝트 ZIP 파일이 아닙니다. (slides.json 미포함)');
-        return;
-      }
+      // Case 1: Import HTML File (.html, .htm)
+      if (fileNameLower.endsWith('.html') || fileNameLower.endsWith('.htm')) {
+        const textContent = await file.text();
+        // Parse embedded JSON script
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(textContent, 'text/html');
+        const scriptData = doc.getElementById('presentation-matrix-data');
 
-      const jsonText = await slidesJsonFile.async('string');
-      const parsedData = JSON.parse(jsonText);
+        if (scriptData && scriptData.textContent) {
+          const parsedData = JSON.parse(scriptData.textContent.trim());
+          if (parsedData && Array.isArray(parsedData.slides)) {
+            onImportProject(parsedData.slides, parsedData.name || file.name.replace(/\.html?$/i, ''));
+            alert(`HTML 프로젝트 "${parsedData.name || file.name}"를 성공적으로 불러왔습니다.`);
+          } else {
+            alert('HTML 파일 내에 유효한 슬라이드 데이터가 없습니다.');
+          }
+        } else {
+          alert('선택하신 HTML 파일은 Presentation Matrix 프로젝트 데이터가 포함되지 않은 일반 HTML입니다.');
+        }
+      } 
+      // Case 2: Import ZIP File (.zip)
+      else {
+        const zip = await JSZip.loadAsync(file);
+        const slidesJsonFile = zip.file('slides.json');
 
-      if (parsedData && Array.isArray(parsedData.slides)) {
-        onImportProject(parsedData.slides, parsedData.name || file.name.replace('.zip', ''));
-        alert(`프로젝트 "${parsedData.name || file.name}"를 성공적으로 불러왔습니다.`);
-      } else {
-        alert('유효하지 않은 장표 데이터 형식입니다.');
+        if (!slidesJsonFile) {
+          alert('올바른 프로젝트 ZIP 파일이 아닙니다. (slides.json 미포함)');
+          return;
+        }
+
+        const jsonText = await slidesJsonFile.async('string');
+        const parsedData = JSON.parse(jsonText);
+
+        if (parsedData && Array.isArray(parsedData.slides)) {
+          onImportProject(parsedData.slides, parsedData.name || file.name.replace('.zip', ''));
+          alert(`ZIP 프로젝트 "${parsedData.name || file.name}"를 성공적으로 불러왔습니다.`);
+        } else {
+          alert('유효하지 않은 장표 데이터 형식입니다.');
+        }
       }
     } catch (err) {
-      console.error('Import ZIP error:', err);
-      alert('ZIP 파일 불러오기 실패');
+      console.error('Import error:', err);
+      alert('파일 불러오기에 실패했습니다.');
     } finally {
       setIsImporting(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -582,7 +636,7 @@ export default function LeftSidebar({
           type="file"
           ref={fileInputRef}
           onChange={handleFileImport}
-          accept=".zip"
+          accept=".zip, .html, .htm"
           className="hidden"
         />
 
@@ -596,14 +650,15 @@ export default function LeftSidebar({
             <span>ZIP / HTML Export</span>
           </button>
 
-          {/* Import button */}
+          {/* Import button (Supports ZIP and HTML) */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
             className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-slate-200"
+            title="ZIP 또는 HTML 파일 불러오기 지원"
           >
             {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 text-slate-500" />}
-            <span>ZIP Import</span>
+            <span>ZIP / HTML Import</span>
           </button>
         </div>
       </div>
@@ -613,7 +668,7 @@ export default function LeftSidebar({
         showExportModal &&
         createPortal(
           <div
-            className="fixed inset-0 flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 animate-fade-in"
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 animate-fade-in"
             style={{ zIndex: 999999 }}
           >
             <div className="w-full max-w-md bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-5 relative">
@@ -677,7 +732,7 @@ export default function LeftSidebar({
                     </div>
                     <div>
                       <span className="text-xs font-bold text-slate-800 block">HTML (단독 웹 프레젠테이션 파일)</span>
-                      <span className="text-[10px] text-slate-500">웹 브라우저에서 바로 열어 발표할 수 있는 HTML</span>
+                      <span className="text-[10px] text-slate-500">웹 브라우저에서 발표 가능 + 다시 불러오기 지원</span>
                     </div>
                   </div>
                 </div>
