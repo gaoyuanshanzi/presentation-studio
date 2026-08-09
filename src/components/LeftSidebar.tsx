@@ -1,6 +1,7 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   FolderKanban,
   Plus,
@@ -16,9 +17,11 @@ import {
   Loader2,
   HardDrive,
   GripVertical,
-  FileImage,
   Globe,
-  Stamp
+  Stamp,
+  X,
+  CheckSquare,
+  Square
 } from 'lucide-react';
 import { Slide, Project } from '@/types';
 import JSZip from 'jszip';
@@ -69,11 +72,9 @@ export default function LeftSidebar({
   const [isExporting, setIsExporting] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
   const [showExportModal, setShowExportModal] = useState(false);
-  const [pendingZipBase64, setPendingZipBase64] = useState<string | null>(null);
-  const [pendingBlob, setPendingBlob] = useState<Blob | null>(null);
-  const [pendingHtmlContent, setPendingHtmlContent] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
 
-  // Export options state
+  // Export options state (default ZIP: true, HTML: false, Watermark: false)
   const [exportFormats, setExportFormats] = useState<{ zip: boolean; html: boolean }>({ zip: true, html: false });
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
   const [watermarkLang, setWatermarkLang] = useState<'ko' | 'en'>('ko');
@@ -83,6 +84,10 @@ export default function LeftSidebar({
   const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // ── Drag & Drop Reorder ────────────────────────────────────────────
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -117,7 +122,7 @@ export default function LeftSidebar({
     setDragOverIndex(null);
   };
 
-  // ── Watermark helper ───────────────────────────────────────────────
+  // ── Watermark Helper ───────────────────────────────────────────────
   const drawWatermarkOnCanvas = (canvas: HTMLCanvasElement, lang: 'ko' | 'en') => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return canvas;
@@ -125,8 +130,7 @@ export default function LeftSidebar({
     return new Promise<HTMLCanvasElement>((resolve) => {
       const img = new window.Image();
       img.onload = () => {
-        // Calculate appropriate size maintaining aspect ratio
-        const maxW = 340;
+        const maxW = 360;
         const aspect = img.width > 0 ? img.height / img.width : 0.25;
         const wmW = Math.min(maxW, img.width || maxW);
         const wmH = wmW * aspect;
@@ -142,11 +146,17 @@ export default function LeftSidebar({
 
   // ── HTML Export Generator ──────────────────────────────────────────
   const generateHtmlExport = (slideImages: { page: number; dataUrl: string }[]): string => {
-    const slideHtml = slideImages.map(({ page, dataUrl }) => `
+    const slideHtml = slideImages
+      .map(
+        ({ page, dataUrl }) => `
     <section class="slide-page" id="slide-${page}">
-      <img src="${dataUrl}" alt="Slide ${page}" class="slide-img"/>
-      <div class="slide-num">Page ${page}</div>
-    </section>`).join('\n');
+      <div class="slide-wrapper">
+        <img src="${dataUrl}" alt="Slide ${page}" class="slide-img"/>
+        <div class="slide-num">Page ${page}</div>
+      </div>
+    </section>`
+      )
+      .join('\n');
 
     return `<!DOCTYPE html>
 <html lang="ko">
@@ -156,24 +166,25 @@ export default function LeftSidebar({
   <title>${projectName || 'Presentation'} - HTML Export</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    body { background:#0f172a; font-family:'Inter',sans-serif; }
-    .header { background:#1e293b; color:#f1f5f9; padding:20px 32px; display:flex; align-items:center; gap:16px; border-bottom:1px solid #334155; }
-    .header h1 { font-size:18px; font-weight:700; }
+    body { background:#0f172a; color:#f1f5f9; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+    .header { background:#1e293b; color:#f1f5f9; padding:20px 32px; display:flex; align-items:center; justify-content:space-between; border-bottom:1px solid #334155; sticky; top:0; z-index:100; }
+    .header h1 { font-size:20px; font-weight:700; }
     .header p { font-size:12px; color:#94a3b8; margin-top:2px; }
-    .slides-container { max-width:1280px; margin:0 auto; padding:32px 16px; display:flex; flex-direction:column; gap:32px; }
-    .slide-page { position:relative; border-radius:12px; overflow:hidden; box-shadow:0 4px 32px rgba(0,0,0,0.4); border:1px solid #1e293b; }
-    .slide-img { width:100%; display:block; }
-    .slide-num { position:absolute; bottom:12px; right:16px; background:rgba(0,0,0,0.55); color:#f1f5f9; padding:4px 12px; border-radius:20px; font-size:12px; font-weight:600; }
-    .nav { position:fixed; bottom:24px; right:24px; display:flex; flex-direction:column; gap:8px; }
-    .nav a { background:#3b82f6; color:#fff; padding:10px 18px; border-radius:8px; text-decoration:none; font-size:13px; font-weight:600; text-align:center; }
-    .nav a:hover { background:#2563eb; }
+    .slides-container { max-width:1280px; margin:0 auto; padding:40px 20px; display:flex; flex-direction:column; gap:40px; }
+    .slide-page { position:relative; border-radius:16px; overflow:hidden; box-shadow:0 8px 32px rgba(0,0,0,0.5); border:1px solid #334155; background:#000; }
+    .slide-wrapper { position:relative; width:100%; }
+    .slide-img { width:100%; height:auto; display:block; }
+    .slide-num { position:absolute; bottom:16px; right:20px; background:rgba(15,23,42,0.85); color:#f1f5f9; padding:6px 14px; border-radius:20px; font-size:13px; font-weight:600; backdrop-filter:blur(4px); border:1px solid rgba(255,255,255,0.1); }
+    .nav { position:fixed; bottom:28px; right:28px; display:flex; flex-direction:column; gap:10px; z-index:100; }
+    .nav a { background:#3b82f6; color:#fff; padding:12px 22px; border-radius:12px; text-decoration:none; font-size:14px; font-weight:600; text-align:center; box-shadow:0 4px 14px rgba(59,130,246,0.4); transition:all 0.2s; }
+    .nav a:hover { background:#2563eb; transform:translateY(-2px); }
   </style>
 </head>
 <body>
   <div class="header">
     <div>
       <h1>${projectName || 'Presentation Matrix'}</h1>
-      <p>HTML Export — ${new Date().toLocaleString()} | Total ${slideImages.length} Slides</p>
+      <p>HTML Presentation Export — ${new Date().toLocaleString()} | Total ${slideImages.length} Slides</p>
     </div>
   </div>
   <div class="slides-container">
@@ -186,81 +197,96 @@ export default function LeftSidebar({
 </html>`;
   };
 
-  // ── ZIP / Export Generator ─────────────────────────────────────────
-  const generateProjectZip = async () => {
+  // ── Core Export Function (Triggered when user clicks Download/Save in modal) ──
+  const executeExportProcess = async (): Promise<{ blob: Blob | null; zipBase64: string | null; htmlContent: string | null }> => {
+    const zip = new JSZip();
+    const imagesFolder = zip.folder('rendered_slides');
+    const slideImages: { page: number; dataUrl: string }[] = [];
+
+    for (let i = 0; i < slides.length; i++) {
+      const slide = slides[i];
+      try {
+        let canvas = await renderSlideToCombinedCanvas(slide);
+        if (watermarkEnabled) {
+          canvas = (await drawWatermarkOnCanvas(canvas, watermarkLang)) as HTMLCanvasElement;
+        }
+        const imgData = canvas.toDataURL('image/png').split(',')[1];
+        const dataUrl = canvas.toDataURL('image/png');
+        const pageNumStr = String(i + 1).padStart(2, '0');
+        if (imagesFolder) {
+          imagesFolder.file(`slide_${pageNumStr}_combined_1920x1080.png`, imgData, { base64: true });
+        }
+        slideImages.push({ page: i + 1, dataUrl });
+      } catch (e) {
+        console.warn(`Canvas rendering error for slide page ${i + 1}:`, e);
+      }
+    }
+
+    // Add slides.json
+    const projectMeta = {
+      name: projectName || 'Untitled Presentation',
+      exportedAt: new Date().toISOString(),
+      slideCount: slides.length,
+      slides: slides
+    };
+    zip.file('slides.json', JSON.stringify(projectMeta, null, 2));
+
+    let htmlContent: string | null = null;
+    if (exportFormats.html) {
+      htmlContent = generateHtmlExport(slideImages);
+      zip.file('index.html', htmlContent);
+    }
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const zipBase64 = await zip.generateAsync({ type: 'base64' });
+
+    return { blob, zipBase64, htmlContent };
+  };
+
+  // Handle Download to Local PC
+  const handleDownloadToLocal = async () => {
+    if (!exportFormats.zip && !exportFormats.html) {
+      alert('저장 형식(ZIP 또는 HTML)을 최소 하나 이상 선택해 주세요.');
+      return;
+    }
     setIsExporting(true);
     try {
-      const zip = new JSZip();
-      const imagesFolder = zip.folder('rendered_slides');
-      const slideImages: { page: number; dataUrl: string }[] = [];
+      const { blob, htmlContent } = await executeExportProcess();
+      const safeProjectName = projectName.replace(/\s+/g, '_') || 'presentation';
 
-      if (imagesFolder) {
-        for (let i = 0; i < slides.length; i++) {
-          const slide = slides[i];
-          try {
-            let canvas = await renderSlideToCombinedCanvas(slide);
-            if (watermarkEnabled) {
-              canvas = await drawWatermarkOnCanvas(canvas, watermarkLang) as HTMLCanvasElement;
-            }
-            const imgData = canvas.toDataURL('image/png').split(',')[1];
-            const dataUrl = canvas.toDataURL('image/png');
-            const pageNumStr = String(i + 1).padStart(2, '0');
-            imagesFolder.file(`slide_${pageNumStr}_combined_1920x1080.png`, imgData, { base64: true });
-            slideImages.push({ page: i + 1, dataUrl });
-          } catch (e) {
-            console.warn(`Canvas rendering error for slide page ${i + 1}:`, e);
-          }
-        }
+      if (exportFormats.zip && blob) {
+        saveAs(blob, `${safeProjectName}_project.zip`);
       }
-
-      // Add slides.json
-      const projectMeta = {
-        name: projectName || 'Untitled Presentation',
-        exportedAt: new Date().toISOString(),
-        slideCount: slides.length,
-        slides: slides
-      };
-      zip.file('slides.json', JSON.stringify(projectMeta, null, 2));
-
-      // Add HTML if selected
-      if (exportFormats.html) {
-        const htmlContent = generateHtmlExport(slideImages);
-        zip.file('index.html', htmlContent);
-        setPendingHtmlContent(htmlContent);
+      if (exportFormats.html && htmlContent) {
+        const htmlBlob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
+        saveAs(htmlBlob, `${safeProjectName}_presentation.html`);
       }
-
-      const blob = await zip.generateAsync({ type: 'blob' });
-      const base64 = await zip.generateAsync({ type: 'base64' });
-
-      setPendingBlob(blob);
-      setPendingZipBase64(base64);
-      setShowExportModal(true);
+      setShowExportModal(false);
     } catch (err) {
-      console.error('ZIP generation error:', err);
-      alert('프로젝트 ZIP 파일 생성에 실패했습니다.');
+      console.error('Export download error:', err);
+      alert('파일 저장 중 오류가 발생했습니다.');
     } finally {
       setIsExporting(false);
     }
   };
 
-  const handleDownloadLocalZip = () => {
-    if (pendingBlob && exportFormats.zip) {
-      saveAs(pendingBlob, `${projectName.replace(/\s+/g, '_')}_project.zip`);
-    }
-    if (pendingHtmlContent && exportFormats.html) {
-      const blob = new Blob([pendingHtmlContent], { type: 'text/html;charset=utf-8' });
-      saveAs(blob, `${projectName.replace(/\s+/g, '_')}_presentation.html`);
-    }
-    setShowExportModal(false);
-  };
-
-  const handleSaveZipToNeon = async () => {
-    if (pendingZipBase64) {
-      const success = await onSaveToNeonDb(pendingZipBase64);
-      if (success) {
-        setShowExportModal(false);
-        onRefreshDbProjects();
+  // Handle Save to Neon DB
+  const handleSaveToNeonDbAction = async () => {
+    setIsExporting(true);
+    try {
+      const { zipBase64 } = await executeExportProcess();
+      if (zipBase64) {
+        const success = await onSaveToNeonDb(zipBase64);
+        if (success) {
+          setShowExportModal(false);
+          onRefreshDbProjects();
+        }
       }
+    } catch (err) {
+      console.error('Save to Neon error:', err);
+      alert('Neon DB 저장 중 오류가 발생했습니다.');
+    } finally {
+      setIsExporting(false);
     }
   };
 
@@ -415,7 +441,6 @@ export default function LeftSidebar({
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
-                    {/* Drag Handle */}
                     <span className="cursor-grab active:cursor-grabbing text-slate-300 hover:text-slate-500 transition-colors">
                       <GripVertical className="w-3.5 h-3.5" />
                     </span>
@@ -562,21 +587,20 @@ export default function LeftSidebar({
         />
 
         <div className="grid grid-cols-2 gap-2">
-          {/* Export button */}
+          {/* Export button -> Open modal options first */}
           <button
-            onClick={generateProjectZip}
-            disabled={isExporting}
-            className="py-2 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-blue-500/20"
+            onClick={() => setShowExportModal(true)}
+            className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-blue-500/20"
           >
-            {isExporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            <span>ZIP Export</span>
+            <Download className="w-3.5 h-3.5" />
+            <span>ZIP / HTML Export</span>
           </button>
 
           {/* Import button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={isImporting}
-            className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-slate-200"
+            className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all border border-slate-200"
           >
             {isImporting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5 text-slate-500" />}
             <span>ZIP Import</span>
@@ -584,141 +608,178 @@ export default function LeftSidebar({
         </div>
       </div>
 
-      {/* ── Export Options Choice Modal ─────────────────────────────── */}
-      {showExportModal && (
-        <div
-          className="fixed inset-0 flex items-center justify-center bg-slate-900/50 backdrop-blur-sm p-4"
-          style={{ zIndex: 99999 }}
-        >
-          <div className="w-full max-w-sm bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-5">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-blue-100 text-blue-600 flex items-center justify-center">
-                <FileCode2 className="w-5 h-5" />
-              </div>
-              <div>
-                <h3 className="font-bold text-slate-800 text-base">프로젝트 Export 설정</h3>
-                <p className="text-xs text-slate-500">저장 형식과 옵션을 선택하세요</p>
-              </div>
-            </div>
-
-            {/* Format Selection */}
-            <div className="space-y-2">
-              <p className="text-xs font-semibold text-slate-600 mb-1">📦 저장 형식</p>
-
-              <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 cursor-pointer transition-all">
-                <input
-                  type="checkbox"
-                  checked={exportFormats.zip}
-                  onChange={(e) => setExportFormats((f) => ({ ...f, zip: e.target.checked }))}
-                  className="w-4 h-4 accent-blue-600"
-                />
-                <div className="flex items-center gap-2">
-                  <HardDrive className="w-4 h-4 text-slate-500" />
-                  <span className="text-xs font-semibold text-slate-700">ZIP (PNG 이미지 + slides.json)</span>
-                </div>
-              </label>
-
-              <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 cursor-pointer transition-all">
-                <input
-                  type="checkbox"
-                  checked={exportFormats.html}
-                  onChange={(e) => setExportFormats((f) => ({ ...f, html: e.target.checked }))}
-                  className="w-4 h-4 accent-blue-600"
-                />
-                <div className="flex items-center gap-2">
-                  <Globe className="w-4 h-4 text-emerald-500" />
-                  <span className="text-xs font-semibold text-slate-700">HTML (웹 브라우저 발표용)</span>
-                </div>
-              </label>
-            </div>
-
-            {/* Watermark Option */}
-            <div className="space-y-2 border-t border-slate-100 pt-4">
-              <p className="text-xs font-semibold text-slate-600 mb-1">🔖 워터마크</p>
-
-              <label className="flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-blue-300 cursor-pointer transition-all">
-                <input
-                  type="checkbox"
-                  checked={watermarkEnabled}
-                  onChange={(e) => setWatermarkEnabled(e.target.checked)}
-                  className="w-4 h-4 accent-blue-600"
-                />
-                <div className="flex items-center gap-2">
-                  <Stamp className="w-4 h-4 text-violet-500" />
-                  <span className="text-xs font-semibold text-slate-700">워터마크 삽입 (좌측 하단)</span>
-                </div>
-              </label>
-
-              {watermarkEnabled && (
-                <div className="ml-2 mt-1 space-y-1.5 animate-fade-in">
-                  <p className="text-[11px] text-slate-500 mb-1">워터마크 언어 선택:</p>
-                  <div className="flex gap-2">
-                    <label className={`flex-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${watermarkLang === 'ko' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                      <input
-                        type="radio"
-                        name="wmLang"
-                        value="ko"
-                        checked={watermarkLang === 'ko'}
-                        onChange={() => setWatermarkLang('ko')}
-                        className="hidden"
-                      />
-                      <span className="text-xs font-semibold">🇰🇷 한국어</span>
-                    </label>
-                    <label className={`flex-1 flex items-center justify-center gap-2 p-2.5 rounded-xl border cursor-pointer transition-all ${watermarkLang === 'en' ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 text-slate-600 hover:border-slate-300'}`}>
-                      <input
-                        type="radio"
-                        name="wmLang"
-                        value="en"
-                        checked={watermarkLang === 'en'}
-                        onChange={() => setWatermarkLang('en')}
-                        className="hidden"
-                      />
-                      <span className="text-xs font-semibold">🇺🇸 English</span>
-                    </label>
-                  </div>
-
-                  {/* Watermark Preview */}
-                  <div className="mt-2 rounded-xl overflow-hidden border border-slate-200 bg-slate-900 p-3">
-                    <p className="text-[10px] text-slate-400 mb-2">워터마크 미리보기:</p>
-                    <img
-                      src={watermarkLang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64}
-                      alt="watermark preview"
-                      className="w-full max-w-[260px] rounded-lg object-contain"
-                    />
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Action Buttons */}
-            <div className="space-y-2 pt-1 border-t border-slate-100">
+      {/* ── Export Options Modal rendered at document.body via Portal to guarantee TOP LAYER (z-[999999]) ── */}
+      {mounted &&
+        showExportModal &&
+        createPortal(
+          <div
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/70 backdrop-blur-md p-4 animate-fade-in"
+            style={{ zIndex: 999999 }}
+          >
+            <div className="w-full max-w-md bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-5 relative">
+              {/* Close X Button */}
               <button
-                onClick={handleDownloadLocalZip}
-                disabled={!exportFormats.zip && !exportFormats.html}
-                className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 disabled:opacity-40 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md"
+                onClick={() => setShowExportModal(false)}
+                className="absolute top-4 right-4 p-1.5 rounded-full text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition-all"
               >
-                <Download className="w-4 h-4" />
-                <span>로컬 PC로 다운로드</span>
+                <X className="w-5 h-5" />
               </button>
 
-              <button
-                onClick={handleSaveZipToNeon}
-                className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-500/20"
-              >
-                <Database className="w-4 h-4" />
-                <span>Neon DB에 프로젝트 저장</span>
-              </button>
-            </div>
+              <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-2xl bg-blue-100 text-blue-600 flex items-center justify-center shadow-inner">
+                  <FileCode2 className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">프로젝트 Export 설정</h3>
+                  <p className="text-xs text-slate-500">저장 형식과 워터마크 옵션을 선택하세요</p>
+                </div>
+              </div>
 
-            <button
-              onClick={() => setShowExportModal(false)}
-              className="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-medium text-center"
-            >
-              취소
-            </button>
-          </div>
-        </div>
-      )}
+              {/* 1. Format Selection */}
+              <div className="space-y-2.5">
+                <p className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <span>📦 내보낼 저장 형식 선택</span>
+                  <span className="text-[10px] text-blue-600 font-normal">(중복 선택 가능)</span>
+                </p>
+
+                {/* ZIP Format Checkbox Option */}
+                <div
+                  onClick={() => setExportFormats((f) => ({ ...f, zip: !f.zip }))}
+                  className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
+                    exportFormats.zip
+                      ? 'border-blue-500 bg-blue-50/70 ring-2 ring-blue-500/20 shadow-sm'
+                      : 'border-slate-200 bg-slate-50/50 hover:bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-1.5 rounded-lg ${exportFormats.zip ? 'bg-blue-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      {exportFormats.zip ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">ZIP (1920x1080 PNG + slides.json)</span>
+                      <span className="text-[10px] text-slate-500">고해상도 장표 이미지들과 프로젝트 원본 파일</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* HTML Format Checkbox Option */}
+                <div
+                  onClick={() => setExportFormats((f) => ({ ...f, html: !f.html }))}
+                  className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
+                    exportFormats.html
+                      ? 'border-emerald-500 bg-emerald-50/70 ring-2 ring-emerald-500/20 shadow-sm'
+                      : 'border-slate-200 bg-slate-50/50 hover:bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-1.5 rounded-lg ${exportFormats.html ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      {exportFormats.html ? <CheckSquare className="w-4 h-4" /> : <Square className="w-4 h-4" />}
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">HTML (단독 웹 프레젠테이션 파일)</span>
+                      <span className="text-[10px] text-slate-500">웹 브라우저에서 바로 열어 발표할 수 있는 HTML</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Watermark Option */}
+              <div className="space-y-3 border-t border-slate-200 pt-4">
+                <div
+                  onClick={() => setWatermarkEnabled((v) => !v)}
+                  className={`flex items-center justify-between p-3.5 rounded-xl border cursor-pointer transition-all ${
+                    watermarkEnabled
+                      ? 'border-violet-500 bg-violet-50/70 ring-2 ring-violet-500/20 shadow-sm'
+                      : 'border-slate-200 bg-slate-50/50 hover:bg-white hover:border-slate-300'
+                  }`}
+                >
+                  <div className="flex items-center gap-3">
+                    <div className={`p-1.5 rounded-lg ${watermarkEnabled ? 'bg-violet-600 text-white' : 'bg-slate-200 text-slate-500'}`}>
+                      <Stamp className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <span className="text-xs font-bold text-slate-800 block">워터마크 삽입 (좌측 하단)</span>
+                      <span className="text-[10px] text-slate-500">슬라이드 이미지 좌측 하단에 금색 타이틀 삽입</span>
+                    </div>
+                  </div>
+                  {watermarkEnabled ? <CheckSquare className="w-4 h-4 text-violet-600" /> : <Square className="w-4 h-4 text-slate-400" />}
+                </div>
+
+                {watermarkEnabled && (
+                  <div className="space-y-2 pt-1 pl-1">
+                    <p className="text-[11px] font-semibold text-slate-600">워터마크 언어 선택:</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setWatermarkLang('ko')}
+                        className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                          watermarkLang === 'ko'
+                            ? 'border-blue-600 bg-blue-600 text-white shadow-md'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span>🇰🇷 한국어</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setWatermarkLang('en')}
+                        className={`py-2 px-3 rounded-xl border text-xs font-bold flex items-center justify-center gap-1.5 transition-all ${
+                          watermarkLang === 'en'
+                            ? 'border-blue-600 bg-blue-600 text-white shadow-md'
+                            : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span>🇺🇸 English</span>
+                      </button>
+                    </div>
+
+                    {/* Live Watermark Image Preview */}
+                    <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-900 p-3 mt-2 shadow-inner">
+                      <p className="text-[10px] font-semibold text-slate-400 mb-2">워터마크 이미지 미리보기:</p>
+                      <div className="bg-slate-950/80 p-2 rounded-lg flex items-center justify-center border border-slate-800">
+                        <img
+                          src={watermarkLang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64}
+                          alt="watermark preview"
+                          className="w-full max-w-[280px] max-h-16 object-contain"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 3. Action Buttons */}
+              <div className="space-y-2 pt-2 border-t border-slate-200">
+                <button
+                  onClick={handleDownloadToLocal}
+                  disabled={isExporting || (!exportFormats.zip && !exportFormats.html)}
+                  className="w-full py-3 px-4 bg-slate-900 hover:bg-slate-800 disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-lg"
+                >
+                  {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  <span>로컬 PC로 다운로드</span>
+                </button>
+
+                <button
+                  onClick={handleSaveToNeonDbAction}
+                  disabled={isExporting}
+                  className="w-full py-3 px-4 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 transition-all shadow-md shadow-blue-500/20"
+                >
+                  {isExporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Database className="w-4 h-4" />}
+                  <span>Neon DB에 프로젝트 저장</span>
+                </button>
+
+                <button
+                  onClick={() => setShowExportModal(false)}
+                  disabled={isExporting}
+                  className="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-medium text-center transition-colors"
+                >
+                  취소
+                </button>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )}
     </aside>
   );
 }
