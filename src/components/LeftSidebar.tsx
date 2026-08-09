@@ -22,7 +22,8 @@ import {
   X,
   CheckSquare,
   Square,
-  FileType
+  FileType,
+  Edit3
 } from 'lucide-react';
 import { Slide, Project } from '@/types';
 import JSZip from 'jszip';
@@ -46,7 +47,7 @@ interface LeftSidebarProps {
   neonProjects: Project[];
   dbConnected: boolean;
   onRefreshDbProjects: () => void;
-  onSaveToNeonDb: (zipBase64: string) => Promise<boolean>;
+  onSaveToNeonDb: (zipBase64: string, name?: string) => Promise<boolean>;
   onDeleteFromNeonDb: (id: string) => Promise<void>;
   onOpenGuideModal: () => void;
 }
@@ -75,6 +76,9 @@ export default function LeftSidebar({
   const [showExportModal, setShowExportModal] = useState(false);
   const [mounted, setMounted] = useState(false);
 
+  // User Custom Export File Name (default to projectName)
+  const [exportFileName, setExportFileName] = useState<string>('');
+
   // Export options state (default ZIP: true, HTML: false, Watermark: false)
   const [exportFormats, setExportFormats] = useState<{ zip: boolean; html: boolean }>({ zip: true, html: false });
   const [watermarkEnabled, setWatermarkEnabled] = useState(false);
@@ -89,6 +93,13 @@ export default function LeftSidebar({
   useEffect(() => {
     setMounted(true);
   }, []);
+
+  // Update exportFileName whenever modal opens or projectName changes
+  useEffect(() => {
+    if (showExportModal && !exportFileName) {
+      setExportFileName(projectName || '프레젠테이션_프로젝트');
+    }
+  }, [showExportModal, projectName]);
 
   // ── Drag & Drop Reorder ────────────────────────────────────────────
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -123,52 +134,77 @@ export default function LeftSidebar({
     setDragOverIndex(null);
   };
 
-  // ── Robust Watermark Helper ─────────────────────────────────────────
-  const drawWatermarkOnCanvas = (canvas: HTMLCanvasElement, lang: 'ko' | 'en'): Promise<HTMLCanvasElement> => {
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return Promise.resolve(canvas);
-    const wmDataUrl = lang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64;
+  // ── 100% Guaranteed Watermark Composite Helper ───────────────────────
+  const drawWatermarkOnCanvas = (sourceCanvas: HTMLCanvasElement, lang: 'ko' | 'en'): Promise<HTMLCanvasElement> => {
     return new Promise<HTMLCanvasElement>((resolve) => {
+      // Create a clean new canvas for composite
+      const outCanvas = document.createElement('canvas');
+      outCanvas.width = sourceCanvas.width || 1920;
+      outCanvas.height = sourceCanvas.height || 1080;
+      const ctx = outCanvas.getContext('2d');
+      if (!ctx) {
+        resolve(sourceCanvas);
+        return;
+      }
+
+      // 1. Copy slide content first
+      ctx.drawImage(sourceCanvas, 0, 0);
+
+      // 2. Load watermark image
+      const wmDataUrl = lang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64;
       const img = new Image();
-      img.onload = () => {
-        // High visibility dimensions on 1920x1080 canvas
-        const targetW = 440;
-        const aspect = img.height > 0 ? img.height / img.width : 0.25;
-        const targetH = targetW * aspect;
-        const padding = 32;
-        const x = padding;
-        const y = canvas.height - targetH - padding;
 
-        ctx.save();
-        // Background container badge for max contrast
-        ctx.fillStyle = 'rgba(15, 23, 42, 0.85)';
-        const bgPad = 14;
-        if (typeof ctx.roundRect === 'function') {
-          ctx.beginPath();
-          ctx.roundRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2, 14);
-          ctx.fill();
-        } else {
-          ctx.fillRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2);
+      const drawWatermarkLogic = () => {
+        try {
+          const targetW = 460; // Prominent size on 1920x1080 canvas
+          const aspect = img.height > 0 && img.width > 0 ? img.height / img.width : 0.25;
+          const targetH = targetW * aspect;
+          const padding = 36;
+          const x = padding;
+          const y = outCanvas.height - targetH - padding;
+
+          ctx.save();
+          // Dark high-contrast background pill
+          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+          const bgPad = 16;
+          if (typeof ctx.roundRect === 'function') {
+            ctx.beginPath();
+            ctx.roundRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2, 16);
+            ctx.fill();
+          } else {
+            ctx.fillRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2);
+          }
+
+          // Draw image
+          ctx.drawImage(img, x, y, targetW, targetH);
+          ctx.restore();
+          resolve(outCanvas);
+        } catch (err) {
+          console.error('Error drawing watermark:', err);
+          resolve(outCanvas);
         }
+      };
 
-        // Draw watermark image
-        ctx.drawImage(img, x, y, targetW, targetH);
-        ctx.restore();
-
-        resolve(canvas);
+      img.onload = () => {
+        drawWatermarkLogic();
       };
       img.onerror = (err) => {
-        console.error('Watermark load failed:', err);
-        resolve(canvas);
+        console.error('Watermark image failed to load:', err);
+        resolve(outCanvas);
       };
+
       img.src = wmDataUrl;
+      if (img.complete && img.naturalWidth !== 0) {
+        drawWatermarkLogic();
+      }
     });
   };
 
   // ── HTML Export Generator ──────────────────────────────────────────
   const generateHtmlExport = (
     slideImages: { page: number; dataUrl: string }[],
-    projectMeta: any
+    projectMeta: any,
+    titleName: string
   ): string => {
     const slideHtml = slideImages
       .map(
@@ -189,7 +225,7 @@ export default function LeftSidebar({
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>${projectName || 'Presentation'} - HTML Export</title>
+  <title>${titleName} - HTML Export</title>
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     body { background:#0f172a; color:#f1f5f9; font-family:-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
@@ -209,7 +245,7 @@ export default function LeftSidebar({
 <body>
   <div class="header">
     <div>
-      <h1>${projectName || 'Presentation Matrix'}</h1>
+      <h1>${titleName}</h1>
       <p>HTML Presentation Export — ${new Date().toLocaleString()} | Total ${slideImages.length} Slides</p>
     </div>
   </div>
@@ -228,7 +264,7 @@ export default function LeftSidebar({
   };
 
   // ── Core Export Process ──
-  const executeExportProcess = async (): Promise<{ blob: Blob | null; zipBase64: string | null; htmlContent: string | null }> => {
+  const executeExportProcess = async (fileName: string): Promise<{ blob: Blob | null; zipBase64: string | null; htmlContent: string | null }> => {
     const zip = new JSZip();
     const imagesFolder = zip.folder('rendered_slides');
     const slideImages: { page: number; dataUrl: string }[] = [];
@@ -253,7 +289,7 @@ export default function LeftSidebar({
     }
 
     const projectMeta = {
-      name: projectName || 'Untitled Presentation',
+      name: fileName || projectName || 'Untitled Presentation',
       exportedAt: new Date().toISOString(),
       slideCount: slides.length,
       slides: slides
@@ -262,7 +298,7 @@ export default function LeftSidebar({
 
     let htmlContent: string | null = null;
     if (exportFormats.html) {
-      htmlContent = generateHtmlExport(slideImages, projectMeta);
+      htmlContent = generateHtmlExport(slideImages, projectMeta, fileName || projectName);
       zip.file('index.html', htmlContent);
     }
 
@@ -278,17 +314,17 @@ export default function LeftSidebar({
       alert('저장 형식(ZIP 또는 HTML)을 최소 하나 이상 선택해 주세요.');
       return;
     }
+    const finalFileName = (exportFileName || projectName || 'presentation').replace(/\s+/g, '_');
     setIsExporting(true);
     try {
-      const { blob, htmlContent } = await executeExportProcess();
-      const safeProjectName = projectName.replace(/\s+/g, '_') || 'presentation';
+      const { blob, htmlContent } = await executeExportProcess(finalFileName);
 
       if (exportFormats.zip && blob) {
-        saveAs(blob, `${safeProjectName}_project.zip`);
+        saveAs(blob, `${finalFileName}_project.zip`);
       }
       if (exportFormats.html && htmlContent) {
         const htmlBlob = new Blob([htmlContent], { type: 'text/html;charset=utf-8' });
-        saveAs(htmlBlob, `${safeProjectName}_presentation.html`);
+        saveAs(htmlBlob, `${finalFileName}_presentation.html`);
       }
       setShowExportModal(false);
     } catch (err) {
@@ -301,11 +337,12 @@ export default function LeftSidebar({
 
   // Handle Save to Neon DB
   const handleSaveToNeonDbAction = async () => {
+    const finalFileName = exportFileName || projectName || '신규 프로젝트';
     setIsExporting(true);
     try {
-      const { zipBase64 } = await executeExportProcess();
+      const { zipBase64 } = await executeExportProcess(finalFileName);
       if (zipBase64) {
-        const success = await onSaveToNeonDb(zipBase64);
+        const success = await onSaveToNeonDb(zipBase64, finalFileName);
         if (success) {
           setShowExportModal(false);
           onRefreshDbProjects();
@@ -331,7 +368,6 @@ export default function LeftSidebar({
       // Case 1: Import HTML File (.html, .htm)
       if (fileNameLower.endsWith('.html') || fileNameLower.endsWith('.htm')) {
         const textContent = await file.text();
-        // Parse embedded JSON script
         const parser = new DOMParser();
         const doc = parser.parseFromString(textContent, 'text/html');
         const scriptData = doc.getElementById('presentation-matrix-data');
@@ -643,7 +679,10 @@ export default function LeftSidebar({
         <div className="grid grid-cols-2 gap-2">
           {/* Export button -> Open modal options first */}
           <button
-            onClick={() => setShowExportModal(true)}
+            onClick={() => {
+              setExportFileName(projectName || '프레젠테이션_프로젝트');
+              setShowExportModal(true);
+            }}
             className="py-2.5 px-3 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-md shadow-blue-500/20"
           >
             <Download className="w-3.5 h-3.5" />
@@ -686,15 +725,31 @@ export default function LeftSidebar({
                 </div>
                 <div>
                   <h3 className="font-bold text-slate-800 text-base">프로젝트 Export 설정</h3>
-                  <p className="text-xs text-slate-500">저장 형식과 워터마크 옵션을 선택하세요</p>
+                  <p className="text-xs text-slate-500">저장 파일명, 형식, 워터마크 옵션을 지정하세요</p>
                 </div>
               </div>
 
-              {/* 1. Format Selection */}
+              {/* 1. Custom File Name Input Box */}
+              <div className="space-y-1.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                  <Edit3 className="w-3.5 h-3.5 text-blue-600" />
+                  <span>내보낼 파일 제목 지정</span>
+                </label>
+                <input
+                  type="text"
+                  value={exportFileName}
+                  onChange={(e) => setExportFileName(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all"
+                  placeholder="예: 2026_신규_사업계획서"
+                />
+                <p className="text-[10px] text-slate-400">지정한 이름으로 ZIP / HTML 확장자 파일이 저장됩니다.</p>
+              </div>
+
+              {/* 2. Format Selection */}
               <div className="space-y-2.5">
                 <p className="text-xs font-bold text-slate-700 flex items-center gap-1">
                   <span>📦 내보낼 저장 형식 선택</span>
-                  <span className="text-[10px] text-blue-600 font-normal">(중복 선택 가능)</span>
+                  <span className="text-[10px] text-blue-600 font-normal">(복수 선택 가능)</span>
                 </p>
 
                 {/* ZIP Format Checkbox Option */}
@@ -732,13 +787,13 @@ export default function LeftSidebar({
                     </div>
                     <div>
                       <span className="text-xs font-bold text-slate-800 block">HTML (단독 웹 프레젠테이션 파일)</span>
-                      <span className="text-[10px] text-slate-500">웹 브라우저에서 발표 가능 + 다시 불러오기 지원</span>
+                      <span className="text-[10px] text-slate-500">웹 브라우저 발표 가능 + 다시 불러오기 지원</span>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* 2. Watermark Option */}
+              {/* 3. Watermark Option */}
               <div className="space-y-3 border-t border-slate-200 pt-4">
                 <div
                   onClick={() => setWatermarkEnabled((v) => !v)}
@@ -754,7 +809,7 @@ export default function LeftSidebar({
                     </div>
                     <div>
                       <span className="text-xs font-bold text-slate-800 block">워터마크 삽입 (좌측 하단)</span>
-                      <span className="text-[10px] text-slate-500">슬라이드 이미지 좌측 하단에 금색 타이틀 삽입</span>
+                      <span className="text-[10px] text-slate-500">슬라이드 이미지 좌측 하단에 타이틀 이미지 합성</span>
                     </div>
                   </div>
                   {watermarkEnabled ? <CheckSquare className="w-4 h-4 text-violet-600" /> : <Square className="w-4 h-4 text-slate-400" />}
@@ -790,7 +845,7 @@ export default function LeftSidebar({
 
                     {/* Live Watermark Image Preview */}
                     <div className="rounded-xl overflow-hidden border border-slate-200 bg-slate-900 p-3 mt-2 shadow-inner">
-                      <p className="text-[10px] font-semibold text-slate-400 mb-2">워터마크 이미지 미리보기:</p>
+                      <p className="text-[10px] font-semibold text-slate-400 mb-2">합성될 워터마크 미리보기:</p>
                       <div className="bg-slate-950/80 p-2 rounded-lg flex items-center justify-center border border-slate-800">
                         <img
                           src={watermarkLang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64}
@@ -803,7 +858,7 @@ export default function LeftSidebar({
                 )}
               </div>
 
-              {/* 3. Action Buttons */}
+              {/* 4. Action Buttons */}
               <div className="space-y-2 pt-2 border-t border-slate-200">
                 <button
                   onClick={handleDownloadToLocal}

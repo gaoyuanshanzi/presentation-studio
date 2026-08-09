@@ -194,14 +194,14 @@ export default function Home() {
   };
 
   // Save Project Zip to Neon DB
-  const handleSaveToNeonDb = async (zipBase64: string) => {
+  const handleSaveToNeonDb = async (zipBase64: string, customName?: string) => {
     try {
       const res = await fetch('/api/projects', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: `proj-${Date.now()}`,
-          name: projectName,
+          name: customName || projectName,
           slides,
           zipBase64
         })
