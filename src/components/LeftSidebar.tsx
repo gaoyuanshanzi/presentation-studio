@@ -156,17 +156,17 @@ export default function LeftSidebar({
 
       const drawWatermarkLogic = () => {
         try {
-          const targetW = 460; // Prominent size on 1920x1080 canvas
+          const targetW = 220; // Half of original 440px on 1920x1080 canvas
           const aspect = img.height > 0 && img.width > 0 ? img.height / img.width : 0.25;
           const targetH = targetW * aspect;
-          const padding = 36;
+          const padding = 24;
           const x = padding;
           const y = outCanvas.height - targetH - padding;
 
           ctx.save();
           // Dark high-contrast background pill
           ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-          const bgPad = 16;
+          const bgPad = 10;
           if (typeof ctx.roundRect === 'function') {
             ctx.beginPath();
             ctx.roundRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2, 16);
