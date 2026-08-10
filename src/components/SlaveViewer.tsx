@@ -98,29 +98,64 @@ export default function SlaveViewer({
     return () => observer.disconnect();
   }, []);
 
-  // ── Drawing event helpers ──────────────────────────────────────────────────
-  const getPos = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // ── Drawing helpers: shared stroke logic ──────────────────────────────────
+  const getPosFromXY = (clientX: number, clientY: number) => {
     const canvas = drawCanvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    return { x: clientX - rect.left, y: clientY - rect.top };
   };
 
+  const pushHistory = () => {
+    const canvas = drawCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+      const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      strokeHistory.current.push(snapshot);
+      if (strokeHistory.current.length > 30) strokeHistory.current.shift();
+    }
+  };
+
+  const drawStroke = useCallback(
+    (from: { x: number; y: number }, to: { x: number; y: number }, pressure = 1) => {
+      const canvas = drawCanvasRef.current;
+      if (!canvas) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+
+      const isHighlighter = penColor.startsWith('rgba') || ['#facc15', '#a3e635', '#fb923c', '#f472b6', '#60a5fa'].includes(penColor);
+
+      let baseWidth = 2;
+      if (penSize === 'medium') baseWidth = 5;
+      if (penSize === 'thick') baseWidth = 12;
+
+      // Galaxy S Pen pressure: scale width by pressure (0.5 ~ 1.5)
+      const pressureFactor = pressure > 0 ? Math.max(0.5, Math.min(pressure * 1.5, 2.0)) : 1;
+
+      ctx.save();
+      ctx.globalAlpha = isHighlighter ? 0.45 : 1.0;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.strokeStyle = penColor;
+      ctx.lineWidth = (isHighlighter ? Math.max(8, baseWidth * 2.2) : baseWidth) * pressureFactor;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(from.x, from.y);
+      ctx.lineTo(to.x, to.y);
+      ctx.stroke();
+      ctx.restore();
+    },
+    [penColor, penSize]
+  );
+
+  // ── Mouse Events (Desktop) ─────────────────────────────────────────────────
   const onMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!isPenMode) return;
-      const canvas = drawCanvasRef.current;
-      if (canvas) {
-        const ctx = canvas.getContext('2d');
-        if (ctx) {
-          // Push current canvas state to history stack before starting new stroke (limit to 30 steps)
-          const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          strokeHistory.current.push(snapshot);
-          if (strokeHistory.current.length > 30) strokeHistory.current.shift();
-        }
-      }
+      pushHistory();
       isDrawing.current = true;
-      lastPos.current = getPos(e);
+      lastPos.current = getPosFromXY(e.clientX, e.clientY);
     },
     [isPenMode]
   );
@@ -128,41 +163,44 @@ export default function SlaveViewer({
   const onMouseMove = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>) => {
       if (!isPenMode || !isDrawing.current || !lastPos.current) return;
-      const canvas = drawCanvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-
-      const current = getPos(e);
-
-      // Detect highlighter vs normal pen by opacity of selected color
-      const isHighlighter = penColor.startsWith('rgba') || ['#facc15', '#a3e635', '#fb923c', '#f472b6', '#60a5fa'].includes(penColor);
-
-      // Dynamic width based on penSize selection
-      let baseWidth = 2; // fine (얇게)
-      if (penSize === 'medium') baseWidth = 5; // 보통
-      if (penSize === 'thick') baseWidth = 12; // 두껍게
-
-      ctx.save();
-      ctx.globalAlpha = isHighlighter ? 0.45 : 1.0;
-      ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = penColor;
-      ctx.lineWidth = isHighlighter ? Math.max(8, baseWidth * 2.2) : baseWidth;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-
-      ctx.beginPath();
-      ctx.moveTo(lastPos.current.x, lastPos.current.y);
-      ctx.lineTo(current.x, current.y);
-      ctx.stroke();
-      ctx.restore();
-
+      const current = getPosFromXY(e.clientX, e.clientY);
+      drawStroke(lastPos.current, current);
       lastPos.current = current;
     },
-    [isPenMode, penColor, penSize]
+    [isPenMode, drawStroke]
   );
 
   const onMouseUp = useCallback(() => {
+    isDrawing.current = false;
+    lastPos.current = null;
+  }, []);
+
+  // ── Pointer Events (Galaxy S Pen + Stylus + Touch fallback) ───────────────
+  // Pointer events API covers: mouse, touch, S Pen, and stylus with pressure
+  const onPointerDown = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!isPenMode) return;
+      // Prevent scrolling the page while drawing
+      e.currentTarget.setPointerCapture(e.pointerId);
+      pushHistory();
+      isDrawing.current = true;
+      lastPos.current = getPosFromXY(e.clientX, e.clientY);
+    },
+    [isPenMode]
+  );
+
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent<HTMLCanvasElement>) => {
+      if (!isPenMode || !isDrawing.current || !lastPos.current) return;
+      const current = getPosFromXY(e.clientX, e.clientY);
+      // e.pressure: 0~1 (Galaxy S Pen provides real pressure, touch provides 0.5, mouse provides 0.5)
+      drawStroke(lastPos.current, current, e.pressure || 0.5);
+      lastPos.current = current;
+    },
+    [isPenMode, drawStroke]
+  );
+
+  const onPointerUp = useCallback(() => {
     isDrawing.current = false;
     lastPos.current = null;
   }, []);
@@ -229,17 +267,26 @@ export default function SlaveViewer({
         ) : null /* ②_slave empty — pure background, no overlay at all */}
       </div>
 
-      {/* Pen Drawing Canvas Overlay */}
+      {/* Pen Drawing Canvas Overlay — supports mouse, touch, Galaxy S Pen */}
       <canvas
         ref={drawCanvasRef}
+        // Mouse events (desktop)
         onMouseDown={onMouseDown}
         onMouseMove={onMouseMove}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
+        // Pointer events (touch / Galaxy S Pen / stylus with pressure)
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerUp}
+        onPointerCancel={onPointerUp}
         className="absolute inset-0 z-20 rounded-xl"
         style={{
           pointerEvents: isPenMode ? 'all' : 'none',
           cursor: isPenMode ? 'crosshair' : 'default',
+          // Prevent page scroll / zoom while drawing on touch devices
+          touchAction: isPenMode ? 'none' : 'auto',
         }}
       />
 
