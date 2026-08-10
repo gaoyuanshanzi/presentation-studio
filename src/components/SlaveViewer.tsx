@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { SlideContent } from '@/types';
@@ -13,17 +13,12 @@ interface SlaveViewerProps {
   badgeColor: string;
   data: SlideContent;
   isRecordingTarget?: boolean;
-  /** When false and content is empty, shows only background (no placeholder). Default: true */
   showPlaceholder?: boolean;
-  /** Pen drawing props */
   isPenMode?: boolean;
   penColor?: string;
   penSize?: 'fine' | 'medium' | 'thick';
-  /** Changing this value clears the drawing canvas instantly */
   clearTrigger?: string;
-  /** Incrementing this number triggers Undo Last Stroke */
   undoTrigger?: number;
-  /** Incrementing this number triggers Clear All Strokes */
   clearAllTrigger?: number;
 }
 
@@ -45,14 +40,21 @@ export default function SlaveViewer({
   const hasBgImage = Boolean(data.bgImage);
   const hasContent = data.content.trim().length > 0;
 
-  // ── Drawing canvas refs & stroke history for Undo ──────────────────────────
   const drawCanvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const isDrawing = useRef(false);
   const lastPos = useRef<{ x: number; y: number } | null>(null);
-  // Stack of ImageData snapshots before each stroke for Undo functionality
   const strokeHistory = useRef<ImageData[]>([]);
 
-  // Clear canvas and history whenever clearTrigger or slide changes
+  // Keep refs for penColor/penSize so native event handlers always see latest values
+  const penColorRef = useRef(penColor);
+  const penSizeRef = useRef(penSize);
+  const isPenModeRef = useRef(isPenMode);
+  useEffect(() => { penColorRef.current = penColor; }, [penColor]);
+  useEffect(() => { penSizeRef.current = penSize; }, [penSize]);
+  useEffect(() => { isPenModeRef.current = isPenMode; }, [isPenMode]);
+
+  // ── Clear canvas on slide/trigger change ───────────────────────────────────
   useEffect(() => {
     const canvas = drawCanvasRef.current;
     if (!canvas) return;
@@ -61,32 +63,27 @@ export default function SlaveViewer({
     strokeHistory.current = [];
   }, [clearTrigger, clearAllTrigger]);
 
-  // Undo last stroke action
+  // ── Undo last stroke ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!undoTrigger) return;
     const canvas = drawCanvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-
     if (strokeHistory.current.length > 0) {
       const lastState = strokeHistory.current.pop();
-      if (lastState) {
-        ctx.putImageData(lastState, 0, 0);
-      }
+      if (lastState) ctx.putImageData(lastState, 0, 0);
     } else {
       ctx.clearRect(0, 0, canvas.width, canvas.height);
     }
   }, [undoTrigger]);
 
-  // Resize drawing canvas to match container
-  const containerRef = useRef<HTMLDivElement>(null);
+  // ── Resize canvas to container ─────────────────────────────────────────────
   useEffect(() => {
     const resize = () => {
       const canvas = drawCanvasRef.current;
       const container = containerRef.current;
       if (!canvas || !container) return;
-      // Preserve existing drawing during resize
       const imageData = canvas.getContext('2d')?.getImageData(0, 0, canvas.width, canvas.height);
       canvas.width = container.clientWidth;
       canvas.height = container.clientHeight;
@@ -98,46 +95,46 @@ export default function SlaveViewer({
     return () => observer.disconnect();
   }, []);
 
-  // ── Drawing helpers: shared stroke logic ──────────────────────────────────
-  const getPosFromXY = (clientX: number, clientY: number) => {
-    const canvas = drawCanvasRef.current;
-    if (!canvas) return { x: 0, y: 0 };
-    const rect = canvas.getBoundingClientRect();
-    return { x: clientX - rect.left, y: clientY - rect.top };
-  };
-
-  const pushHistory = () => {
+  // ── Native Pointer Events (mouse + touch + Galaxy S Pen) via useEffect ─────
+  // Using native addEventListener (not React synthetic events) to enable
+  // preventDefault() which is required to block page scroll while drawing on mobile.
+  useEffect(() => {
     const canvas = drawCanvasRef.current;
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (ctx) {
+
+    const getPosFromEvent = (e: PointerEvent) => {
+      const rect = canvas.getBoundingClientRect();
+      return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    };
+
+    const pushHistory = () => {
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
       const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
       strokeHistory.current.push(snapshot);
       if (strokeHistory.current.length > 30) strokeHistory.current.shift();
-    }
-  };
+    };
 
-  const drawStroke = useCallback(
-    (from: { x: number; y: number }, to: { x: number; y: number }, pressure = 1) => {
-      const canvas = drawCanvasRef.current;
-      if (!canvas) return;
+    const drawStroke = (from: { x: number; y: number }, to: { x: number; y: number }, pressure: number) => {
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
 
-      const isHighlighter = penColor.startsWith('rgba') || ['#facc15', '#a3e635', '#fb923c', '#f472b6', '#60a5fa'].includes(penColor);
+      const color = penColorRef.current;
+      const size = penSizeRef.current;
+      const isHighlighter = ['#facc15', '#a3e635', '#fb923c', '#f472b6', '#60a5fa'].includes(color);
 
       let baseWidth = 2;
-      if (penSize === 'medium') baseWidth = 5;
-      if (penSize === 'thick') baseWidth = 12;
+      if (size === 'medium') baseWidth = 5;
+      if (size === 'thick') baseWidth = 12;
 
-      // Galaxy S Pen pressure: scale width by pressure (0.5 ~ 1.5)
-      const pressureFactor = pressure > 0 ? Math.max(0.5, Math.min(pressure * 1.5, 2.0)) : 1;
+      // S Pen pressure support (0.0~1.0); finger touch = 0.5, mouse = 0.5
+      const pFactor = Math.max(0.5, Math.min((pressure > 0 ? pressure : 0.5) * 1.8, 2.5));
 
       ctx.save();
       ctx.globalAlpha = isHighlighter ? 0.45 : 1.0;
       ctx.globalCompositeOperation = 'source-over';
-      ctx.strokeStyle = penColor;
-      ctx.lineWidth = (isHighlighter ? Math.max(8, baseWidth * 2.2) : baseWidth) * pressureFactor;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = (isHighlighter ? Math.max(10, baseWidth * 2.5) : baseWidth) * pFactor;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
@@ -145,65 +142,51 @@ export default function SlaveViewer({
       ctx.lineTo(to.x, to.y);
       ctx.stroke();
       ctx.restore();
-    },
-    [penColor, penSize]
-  );
+    };
 
-  // ── Mouse Events (Desktop) ─────────────────────────────────────────────────
-  const onMouseDown = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!isPenMode) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!isPenModeRef.current) return;
+      // Crucial: prevent scroll/zoom on touch devices
+      e.preventDefault();
+      canvas.setPointerCapture(e.pointerId);
       pushHistory();
       isDrawing.current = true;
-      lastPos.current = getPosFromXY(e.clientX, e.clientY);
-    },
-    [isPenMode]
-  );
+      lastPos.current = getPosFromEvent(e);
+    };
 
-  const onMouseMove = useCallback(
-    (e: React.MouseEvent<HTMLCanvasElement>) => {
-      if (!isPenMode || !isDrawing.current || !lastPos.current) return;
-      const current = getPosFromXY(e.clientX, e.clientY);
-      drawStroke(lastPos.current, current);
-      lastPos.current = current;
-    },
-    [isPenMode, drawStroke]
-  );
+    const onPointerMove = (e: PointerEvent) => {
+      if (!isPenModeRef.current || !isDrawing.current || !lastPos.current) return;
+      e.preventDefault();
+      // getCoalescedEvents() returns all sub-events between frames for smoother drawing
+      const events = (e as any).getCoalescedEvents ? (e as any).getCoalescedEvents() : [e];
+      for (const ev of events) {
+        const current = getPosFromEvent(ev);
+        drawStroke(lastPos.current, current, ev.pressure ?? 0.5);
+        lastPos.current = current;
+      }
+    };
 
-  const onMouseUp = useCallback(() => {
-    isDrawing.current = false;
-    lastPos.current = null;
-  }, []);
+    const onPointerUp = (e: PointerEvent) => {
+      e.preventDefault();
+      isDrawing.current = false;
+      lastPos.current = null;
+    };
 
-  // ── Pointer Events (Galaxy S Pen + Stylus + Touch fallback) ───────────────
-  // Pointer events API covers: mouse, touch, S Pen, and stylus with pressure
-  const onPointerDown = useCallback(
-    (e: React.PointerEvent<HTMLCanvasElement>) => {
-      if (!isPenMode) return;
-      // Prevent scrolling the page while drawing
-      e.currentTarget.setPointerCapture(e.pointerId);
-      pushHistory();
-      isDrawing.current = true;
-      lastPos.current = getPosFromXY(e.clientX, e.clientY);
-    },
-    [isPenMode]
-  );
+    // Must use { passive: false } so preventDefault() works on touch devices
+    canvas.addEventListener('pointerdown', onPointerDown, { passive: false });
+    canvas.addEventListener('pointermove', onPointerMove, { passive: false });
+    canvas.addEventListener('pointerup', onPointerUp, { passive: false });
+    canvas.addEventListener('pointercancel', onPointerUp, { passive: false });
+    canvas.addEventListener('pointerleave', onPointerUp, { passive: false });
 
-  const onPointerMove = useCallback(
-    (e: React.PointerEvent<HTMLCanvasElement>) => {
-      if (!isPenMode || !isDrawing.current || !lastPos.current) return;
-      const current = getPosFromXY(e.clientX, e.clientY);
-      // e.pressure: 0~1 (Galaxy S Pen provides real pressure, touch provides 0.5, mouse provides 0.5)
-      drawStroke(lastPos.current, current, e.pressure || 0.5);
-      lastPos.current = current;
-    },
-    [isPenMode, drawStroke]
-  );
-
-  const onPointerUp = useCallback(() => {
-    isDrawing.current = false;
-    lastPos.current = null;
-  }, []);
+    return () => {
+      canvas.removeEventListener('pointerdown', onPointerDown);
+      canvas.removeEventListener('pointermove', onPointerMove);
+      canvas.removeEventListener('pointerup', onPointerUp);
+      canvas.removeEventListener('pointercancel', onPointerUp);
+      canvas.removeEventListener('pointerleave', onPointerUp);
+    };
+  }, []); // Mount once — reads latest state via refs
 
   return (
     <div
@@ -211,7 +194,7 @@ export default function SlaveViewer({
       ref={containerRef}
       className="relative flex flex-col h-full bg-white rounded-xl border border-slate-200 shadow-md overflow-hidden transition-all group select-none"
     >
-      {/* Top Header Badge — hidden during recording via data-export-ignore */}
+      {/* Top Header Badge */}
       <div
         data-export-ignore="true"
         className="export-ignore-ui absolute top-3 left-3 z-30 flex items-center gap-2 pointer-events-none"
@@ -233,19 +216,16 @@ export default function SlaveViewer({
           color: data.textColor || '#0f172a',
         }}
       >
-        {/* Background Image */}
         {hasBgImage && (
           <div
             className="absolute inset-0 bg-cover bg-center z-0"
             style={{ backgroundImage: `url(${data.bgImage})` }}
           />
         )}
-        {/* Dark overlay on image — only shown when there IS content (for contrast) */}
         {hasBgImage && hasContent && (
           <div className="absolute inset-0 bg-slate-900/30 z-0" />
         )}
 
-        {/* Markdown Content */}
         {hasContent ? (
           <div
             className={`relative z-10 w-full max-w-2xl mx-auto rounded-2xl transition-all ${
@@ -260,33 +240,22 @@ export default function SlaveViewer({
             </div>
           </div>
         ) : showPlaceholder ? (
-          /* ①_slave subtle hint */
           <div className="relative z-10 h-48 flex flex-col items-center justify-center text-slate-300 gap-2 border-2 border-dashed border-slate-200/40 rounded-xl">
             <p className="text-xs font-medium opacity-60">마크다운을 입력하면 실시간으로 렌더링됩니다.</p>
           </div>
-        ) : null /* ②_slave empty — pure background, no overlay at all */}
+        ) : null}
       </div>
 
-      {/* Pen Drawing Canvas Overlay — supports mouse, touch, Galaxy S Pen */}
+      {/* Pen Drawing Canvas Overlay
+          - touch-action:none prevents scroll hijacking on mobile when pen is active
+          - Pointer events are registered via native addEventListener (not React) for proper preventDefault support */}
       <canvas
         ref={drawCanvasRef}
-        // Mouse events (desktop)
-        onMouseDown={onMouseDown}
-        onMouseMove={onMouseMove}
-        onMouseUp={onMouseUp}
-        onMouseLeave={onMouseUp}
-        // Pointer events (touch / Galaxy S Pen / stylus with pressure)
-        onPointerDown={onPointerDown}
-        onPointerMove={onPointerMove}
-        onPointerUp={onPointerUp}
-        onPointerLeave={onPointerUp}
-        onPointerCancel={onPointerUp}
         className="absolute inset-0 z-20 rounded-xl"
         style={{
           pointerEvents: isPenMode ? 'all' : 'none',
           cursor: isPenMode ? 'crosshair' : 'default',
-          // Prevent page scroll / zoom while drawing on touch devices
-          touchAction: isPenMode ? 'none' : 'auto',
+          touchAction: 'none', // Always none — prevents scroll before JS checks isPenMode
         }}
       />
 
@@ -295,7 +264,7 @@ export default function SlaveViewer({
         <div className="absolute inset-0 z-20 rounded-xl ring-2 ring-yellow-400 ring-offset-0 pointer-events-none" />
       )}
 
-      {/* Bottom Footer — hidden during recording via data-export-ignore */}
+      {/* Bottom Footer */}
       <div
         data-export-ignore="true"
         className="export-ignore-ui px-4 py-1.5 bg-slate-50/80 backdrop-blur-sm border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-400 z-30"
