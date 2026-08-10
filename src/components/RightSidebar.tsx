@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Video,
   Mic,
@@ -383,6 +384,12 @@ export default function RightSidebar({
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   return (
     <aside className="w-full md:w-80 bg-white border-l border-slate-200 flex flex-col h-full select-none shadow-sm z-10">
       {/* Panel Header */}
@@ -623,61 +630,73 @@ export default function RightSidebar({
         )}
       </div>
 
-      {/* Recording Save Modal */}
-      {showSaveModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
-          <div className="w-full max-w-sm bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
-                <Sparkles className="w-5 h-5" />
+      {/* Recording Save Modal - Rendered via Portal at document.body for top z-index */}
+      {mounted &&
+        showSaveModal &&
+        createPortal(
+          <div
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/75 backdrop-blur-md p-4 animate-fade-in"
+            style={{ zIndex: 999999 }}
+          >
+            <div className="w-full max-w-sm bg-white rounded-2xl p-6 border border-slate-200 shadow-2xl space-y-4 relative">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-slate-800 text-base">녹화 완료! MP4 저장 선택</h3>
+                  <p className="text-xs text-slate-500">녹화 시간: {formatTime(recordedDuration)} · 1920x1080 MP4</p>
+                </div>
               </div>
-              <div>
-                <h3 className="font-bold text-slate-800 text-base">녹화 완료! MP4 저장 선택</h3>
-                <p className="text-xs text-slate-500">녹화 시간: {formatTime(recordedDuration)} · 1920x1080 MP4</p>
+              <div className="space-y-2 pt-2">
+                <button
+                  onClick={handleSaveLocalMp4}
+                  className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md"
+                >
+                  <Download className="w-4 h-4" />
+                  <span>로컬 PC에 MP4 저장 (.mp4)</span>
+                </button>
+                <button
+                  onClick={handleSaveNeonMp4}
+                  className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-500/20"
+                >
+                  <Database className="w-4 h-4" />
+                  <span>Neon DB MP4 테이블로 저장</span>
+                </button>
               </div>
-            </div>
-            <div className="space-y-2 pt-2">
               <button
-                onClick={handleSaveLocalMp4}
-                className="w-full py-3 px-4 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md"
+                onClick={() => setShowSaveModal(false)}
+                className="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-medium text-center"
               >
-                <Download className="w-4 h-4" />
-                <span>로컬 PC에 MP4 저장 (.mp4)</span>
-              </button>
-              <button
-                onClick={handleSaveNeonMp4}
-                className="w-full py-3 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition-all shadow-md shadow-indigo-500/20"
-              >
-                <Database className="w-4 h-4" />
-                <span>Neon DB MP4 테이블로 저장</span>
+                닫기
               </button>
             </div>
-            <button
-              onClick={() => setShowSaveModal(false)}
-              className="w-full py-2 text-xs text-slate-400 hover:text-slate-600 font-medium text-center"
-            >
-              닫기
-            </button>
-          </div>
-        </div>
-      )}
+          </div>,
+          document.body
+        )}
 
-      {/* Video Preview Modal */}
-      {previewVideoUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-md p-4">
-          <div className="w-full max-w-3xl bg-white rounded-2xl overflow-hidden shadow-2xl border border-slate-200">
-            <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
-              <span className="font-bold text-sm truncate">{previewTitle}</span>
-              <button onClick={() => setPreviewVideoUrl(null)} className="p-1 text-slate-400 hover:text-white rounded-lg">
-                <X className="w-5 h-5" />
-              </button>
+      {/* Video Preview Modal - Rendered via Portal */}
+      {mounted &&
+        previewVideoUrl &&
+        createPortal(
+          <div
+            className="fixed inset-0 flex items-center justify-center bg-slate-950/85 backdrop-blur-md p-4 animate-fade-in"
+            style={{ zIndex: 999999 }}
+          >
+            <div className="w-full max-w-3xl bg-white rounded-2xl overflow-hidden shadow-2xl border border-slate-200">
+              <div className="p-4 bg-slate-900 text-white flex items-center justify-between">
+                <span className="font-bold text-sm truncate">{previewTitle}</span>
+                <button onClick={() => setPreviewVideoUrl(null)} className="p-1 text-slate-400 hover:text-white rounded-lg">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-4 bg-black flex justify-center">
+                <video src={previewVideoUrl} controls autoPlay className="max-h-[70vh] rounded-lg" />
+              </div>
             </div>
-            <div className="p-4 bg-black flex justify-center">
-              <video src={previewVideoUrl} controls autoPlay className="max-h-[70vh] rounded-lg" />
-            </div>
-          </div>
-        </div>
-      )}
-    </aside>
+          </div>,
+          document.body
+        )}
+  </aside>
   );
 }

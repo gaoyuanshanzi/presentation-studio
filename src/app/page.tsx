@@ -8,6 +8,7 @@ import RightSidebar from '@/components/RightSidebar';
 import ImageSearchModal from '@/components/ImageSearchModal';
 import VercelNeonGuideModal from '@/components/VercelNeonGuideModal';
 import { Slide, Project, RecordingItem } from '@/types';
+import { FolderKanban, Layers, Video, LogOut } from 'lucide-react';
 
 // Default initial presentation sample slide
 const initialSlide: Slide = {
@@ -28,6 +29,9 @@ const initialSlide: Slide = {
 
 export default function Home() {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+
+  // Mobile navigation tab state: 'left' (Directory) | 'center' (Editor & Slave) | 'right' (Recorder)
+  const [mobileTab, setMobileTab] = useState<'left' | 'center' | 'right'>('center');
 
   // Slides State
   const [slides, setSlides] = useState<Slide[]>([initialSlide]);
@@ -91,8 +95,23 @@ export default function Home() {
     refreshNeonRecordings();
   }, []);
 
-  // Get active slide
-  const currentSlide = slides.find((s) => s.id === activeSlideId) || slides[0];
+  // Get active slide and index
+  const currentSlideIndex = slides.findIndex((s) => s.id === activeSlideId);
+  const validIndex = currentSlideIndex >= 0 ? currentSlideIndex : 0;
+  const currentSlide = slides[validIndex] || slides[0];
+
+  // Slide navigation (Previous & Next)
+  const handlePrevSlide = () => {
+    if (validIndex > 0) {
+      setActiveSlideId(slides[validIndex - 1].id);
+    }
+  };
+
+  const handleNextSlide = () => {
+    if (validIndex < slides.length - 1) {
+      setActiveSlideId(slides[validIndex + 1].id);
+    }
+  };
 
   // Pen drawing tool state
   const [isPenMode, setIsPenMode] = useState(false);
@@ -170,7 +189,6 @@ export default function Home() {
       return;
     }
     const filtered = slides.filter((s) => s.id !== id);
-    // Recalculate page numbers
     const updatedSlides = filtered.map((s, idx) => ({ ...s, pageNumber: idx + 1 }));
     setSlides(updatedSlides);
     if (activeSlideId === id) {
@@ -181,7 +199,6 @@ export default function Home() {
   // Reorder Slides Handler
   const handleReorderSlides = (reordered: Slide[]) => {
     setSlides(reordered);
-    // Keep activeSlideId unchanged (it stays valid after reorder)
   };
 
   // Import Project Handler
@@ -281,81 +298,136 @@ export default function Home() {
     }
   };
 
+  // Logout Handler
+  const handleLogout = () => {
+    setIsAuthenticated(false);
+  };
+
   return (
     <main className="w-screen h-screen overflow-hidden flex flex-col bg-slate-100">
-      {/* 1. Admin Login Gate Modal (User inputs admin / 123jesus) */}
+      {/* 1. Admin Login Gate Modal */}
       {!isAuthenticated && (
         <LoginModal onLoginSuccess={() => setIsAuthenticated(true)} />
       )}
 
-      {/* Main Studio Studio App Layout */}
+      {/* Main Studio App Layout */}
       {isAuthenticated && (
-        <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden">
-          {/* Left Sidebar: Neon DB Directory & Slides 1-100 */}
-          <LeftSidebar
-            slides={slides}
-            activeSlideId={activeSlideId}
-            onSelectSlide={setActiveSlideId}
-            onAddSlide={handleAddSlide}
-            onDuplicateSlide={handleDuplicateSlide}
-            onDeleteSlide={handleDeleteSlide}
-            onReorderSlides={handleReorderSlides}
-            onImportProject={handleImportProject}
-            projectName={projectName}
-            setProjectName={setProjectName}
-            neonProjects={neonProjects}
-            dbConnected={dbConnected}
-            onRefreshDbProjects={refreshNeonProjects}
-            onSaveToNeonDb={handleSaveToNeonDb}
-            onDeleteFromNeonDb={handleDeleteFromNeonDb}
-            onOpenGuideModal={() => setIsGuideModalOpen(true)}
-          />
+        <div className="flex-1 flex flex-col h-full overflow-hidden">
+          {/* Mobile Top Navigation Tabs (Visible ONLY on small mobile screens md:hidden) */}
+          <div className="md:hidden bg-slate-900 text-white flex items-center justify-around border-b border-slate-800 p-1.5 shadow-md">
+            <button
+              onClick={() => setMobileTab('left')}
+              className={`flex-1 py-2 px-1 flex flex-col items-center gap-1 rounded-lg text-[11px] font-bold transition-all ${
+                mobileTab === 'left' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <FolderKanban className="w-4 h-4" />
+              <span>1. 디렉토리/목록</span>
+            </button>
 
-          {/* Center 2x2 Grid Layout: ①_slave, ②_slave, ①_master, ②_master */}
-          <CenterGrid
-            currentSlide={currentSlide}
-            onUpdateMaster1={handleUpdateMaster1}
-            onUpdateMaster2={handleUpdateMaster2}
-            onOpenImageSearch={() => setIsImageSearchOpen(true)}
-            isPenMode={isPenMode}
-            penColor={penColor}
-            penSize={penSize}
-            clearTrigger={activeSlideId}
-            undoTrigger={undoTrigger}
-            clearAllTrigger={clearAllTrigger}
-          />
+            <button
+              onClick={() => setMobileTab('center')}
+              className={`flex-1 py-2 px-1 flex flex-col items-center gap-1 rounded-lg text-[11px] font-bold transition-all ${
+                mobileTab === 'center' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Layers className="w-4 h-4" />
+              <span>2. 에디터 & 슬라이드</span>
+            </button>
 
-          {/* Right Sidebar: Screen/Audio Recorder & Neon MP4 Storage */}
-          <RightSidebar
-            neonRecordings={neonRecordings}
-            dbConnected={dbConnected}
-            onRefreshRecordings={refreshNeonRecordings}
-            onSaveRecordingToNeonDb={handleSaveRecordingToNeonDb}
-            onDeleteRecordingFromNeonDb={handleDeleteRecordingFromNeonDb}
-            onOpenGuideModal={() => setIsGuideModalOpen(true)}
-            isPenMode={isPenMode}
-            penColor={penColor}
-            penSize={penSize}
-            onTogglePen={() => setIsPenMode((v) => !v)}
-            onChangePenColor={setPenColor}
-            onChangePenSize={setPenSize}
-            onUndoLastStroke={() => setUndoTrigger((v) => v + 1)}
-            onClearAllStrokes={() => setClearAllTrigger((v) => v + 1)}
-          />
+            <button
+              onClick={() => setMobileTab('right')}
+              className={`flex-1 py-2 px-1 flex flex-col items-center gap-1 rounded-lg text-[11px] font-bold transition-all ${
+                mobileTab === 'right' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <Video className="w-4 h-4" />
+              <span>3. 녹화 센터</span>
+            </button>
+          </div>
 
-          {/* Image Search Modal */}
-          <ImageSearchModal
-            isOpen={isImageSearchOpen}
-            onClose={() => setIsImageSearchOpen(false)}
-            onSelectImage={(url) => handleUpdateMaster2({ bgImage: url })}
-          />
+          {/* Desktop/Tablet 3-Column Layout (md:flex) & Mobile Responsive Layout */}
+          <div className="flex-1 flex flex-col md:flex-row h-full overflow-hidden">
+            {/* Left Sidebar: Directory & Slides List */}
+            <div className={`h-full ${mobileTab === 'left' ? 'block w-full' : 'hidden'} md:block md:w-80`}>
+              <LeftSidebar
+                slides={slides}
+                activeSlideId={activeSlideId}
+                onSelectSlide={(id) => {
+                  setActiveSlideId(id);
+                  setMobileTab('center'); // Switch to editor on mobile slide click
+                }}
+                onAddSlide={handleAddSlide}
+                onDuplicateSlide={handleDuplicateSlide}
+                onDeleteSlide={handleDeleteSlide}
+                onReorderSlides={handleReorderSlides}
+                onImportProject={handleImportProject}
+                projectName={projectName}
+                setProjectName={setProjectName}
+                neonProjects={neonProjects}
+                dbConnected={dbConnected}
+                onRefreshDbProjects={refreshNeonProjects}
+                onSaveToNeonDb={handleSaveToNeonDb}
+                onDeleteFromNeonDb={handleDeleteFromNeonDb}
+                onOpenGuideModal={() => setIsGuideModalOpen(true)}
+                onLogout={handleLogout}
+              />
+            </div>
 
-          {/* Vercel & Neon Guide Modal */}
-          <VercelNeonGuideModal
-            isOpen={isGuideModalOpen}
-            onClose={() => setIsGuideModalOpen(false)}
-            dbConnected={dbConnected}
-          />
+            {/* Center Grid: Editors & Slave Viewers + Previous / Next Nav */}
+            <div className={`h-full flex-1 ${mobileTab === 'center' ? 'block w-full' : 'hidden'} md:block`}>
+              <CenterGrid
+                currentSlide={currentSlide}
+                currentSlideIndex={validIndex}
+                totalSlides={slides.length}
+                onPrevSlide={handlePrevSlide}
+                onNextSlide={handleNextSlide}
+                onUpdateMaster1={handleUpdateMaster1}
+                onUpdateMaster2={handleUpdateMaster2}
+                onOpenImageSearch={() => setIsImageSearchOpen(true)}
+                isPenMode={isPenMode}
+                penColor={penColor}
+                penSize={penSize}
+                clearTrigger={activeSlideId}
+                undoTrigger={undoTrigger}
+                clearAllTrigger={clearAllTrigger}
+              />
+            </div>
+
+            {/* Right Sidebar: Screen/Audio Recorder */}
+            <div className={`h-full ${mobileTab === 'right' ? 'block w-full' : 'hidden'} md:block md:w-80`}>
+              <RightSidebar
+                neonRecordings={neonRecordings}
+                dbConnected={dbConnected}
+                onRefreshRecordings={refreshNeonRecordings}
+                onSaveRecordingToNeonDb={handleSaveRecordingToNeonDb}
+                onDeleteRecordingFromNeonDb={handleDeleteRecordingFromNeonDb}
+                onOpenGuideModal={() => setIsGuideModalOpen(true)}
+                isPenMode={isPenMode}
+                penColor={penColor}
+                penSize={penSize}
+                onTogglePen={() => setIsPenMode((v) => !v)}
+                onChangePenColor={setPenColor}
+                onChangePenSize={setPenSize}
+                onUndoLastStroke={() => setUndoTrigger((v) => v + 1)}
+                onClearAllStrokes={() => setClearAllTrigger((v) => v + 1)}
+              />
+            </div>
+
+            {/* Image Search Modal */}
+            <ImageSearchModal
+              isOpen={isImageSearchOpen}
+              onClose={() => setIsImageSearchOpen(false)}
+              onSelectImage={(url) => handleUpdateMaster2({ bgImage: url })}
+            />
+
+            {/* Vercel & Neon Guide Modal */}
+            <VercelNeonGuideModal
+              isOpen={isGuideModalOpen}
+              onClose={() => setIsGuideModalOpen(false)}
+              dbConnected={dbConnected}
+            />
+          </div>
         </div>
       )}
     </main>

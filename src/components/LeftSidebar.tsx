@@ -23,7 +23,8 @@ import {
   CheckSquare,
   Square,
   FileType,
-  Edit3
+  Edit3,
+  LogOut
 } from 'lucide-react';
 import { Slide, Project } from '@/types';
 import JSZip from 'jszip';
@@ -50,6 +51,7 @@ interface LeftSidebarProps {
   onSaveToNeonDb: (zipBase64: string, name?: string) => Promise<boolean>;
   onDeleteFromNeonDb: (id: string) => Promise<void>;
   onOpenGuideModal: () => void;
+  onLogout?: () => void;
 }
 
 export default function LeftSidebar({
@@ -68,7 +70,8 @@ export default function LeftSidebar({
   onRefreshDbProjects,
   onSaveToNeonDb,
   onDeleteFromNeonDb,
-  onOpenGuideModal
+  onOpenGuideModal,
+  onLogout
 }: LeftSidebarProps) {
   const [activeTab, setActiveTab] = useState<'slides' | 'directory'>('slides');
   const [isExporting, setIsExporting] = useState(false);
@@ -428,19 +431,36 @@ export default function LeftSidebar({
             </div>
           </div>
 
-          {/* Database Connection Badge */}
-          <button
-            onClick={onOpenGuideModal}
-            className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border flex items-center gap-1.5 transition-all ${
-              dbConnected
-                ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-            }`}
-            title="Neon DB 연동 및 배포 설정 안내"
-          >
-            <Database className="w-3 h-3" />
-            <span>{dbConnected ? 'Neon DB Online' : 'Neon DB Standby'}</span>
-          </button>
+          {/* Database Connection Badge & Logout Button */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={onOpenGuideModal}
+              className={`px-2.5 py-1 rounded-full text-[10px] font-semibold border flex items-center gap-1.5 transition-all ${
+                dbConnected
+                  ? 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+              }`}
+              title="Neon DB 연동 및 배포 설정 안내"
+            >
+              <Database className="w-3 h-3" />
+              <span>{dbConnected ? 'Neon DB Online' : 'Neon DB Standby'}</span>
+            </button>
+
+            {onLogout && (
+              <button
+                onClick={() => {
+                  if (confirm('로그아웃 하시겠습니까?')) {
+                    onLogout();
+                  }
+                }}
+                className="px-2 py-1 rounded-lg text-[10px] font-semibold bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 flex items-center gap-1 transition-all"
+                title="로그아웃"
+              >
+                <LogOut className="w-3 h-3" />
+                <span>로그아웃</span>
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Project Name Editable Field */}
