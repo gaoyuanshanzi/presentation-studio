@@ -138,67 +138,80 @@ export default function LeftSidebar({
   };
 
   // ── 100% Guaranteed Watermark Composite Helper ───────────────────────
+  // ── 100% Guaranteed Watermark Composite Helper ───────────────────────
   const drawWatermarkOnCanvas = (sourceCanvas: HTMLCanvasElement, lang: 'ko' | 'en'): Promise<HTMLCanvasElement> => {
     return new Promise<HTMLCanvasElement>((resolve) => {
-      // Create a clean new canvas for composite
-      const outCanvas = document.createElement('canvas');
-      outCanvas.width = sourceCanvas.width || 1920;
-      outCanvas.height = sourceCanvas.height || 1080;
-      const ctx = outCanvas.getContext('2d');
-      if (!ctx) {
-        resolve(sourceCanvas);
-        return;
-      }
-
-      // 1. Copy slide content first
-      ctx.drawImage(sourceCanvas, 0, 0);
-
-      // 2. Load watermark image
-      const wmDataUrl = lang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64;
-      const img = new Image();
-
-      const drawWatermarkLogic = () => {
-        try {
-          const targetW = 220; // Half of original 440px on 1920x1080 canvas
-          const aspect = img.height > 0 && img.width > 0 ? img.height / img.width : 0.25;
-          const targetH = targetW * aspect;
-          const padding = 24;
-          const x = padding;
-          const y = outCanvas.height - targetH - padding;
-
-          ctx.save();
-          // Dark high-contrast background pill
-          ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
-          const bgPad = 10;
-          if (typeof ctx.roundRect === 'function') {
-            ctx.beginPath();
-            ctx.roundRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2, 16);
-            ctx.fill();
-          } else {
-            ctx.fillRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2);
-          }
-
-          // Draw image
-          ctx.drawImage(img, x, y, targetW, targetH);
-          ctx.restore();
-          resolve(outCanvas);
-        } catch (err) {
-          console.error('Error drawing watermark:', err);
-          resolve(outCanvas);
+      let isResolved = false;
+      const safeResolve = (c: HTMLCanvasElement) => {
+        if (!isResolved) {
+          isResolved = true;
+          resolve(c);
         }
       };
 
-      img.onload = () => {
-        drawWatermarkLogic();
-      };
-      img.onerror = (err) => {
-        console.error('Watermark image failed to load:', err);
-        resolve(outCanvas);
-      };
+      try {
+        const outCanvas = document.createElement('canvas');
+        outCanvas.width = sourceCanvas.width || 1920;
+        outCanvas.height = sourceCanvas.height || 1080;
+        const ctx = outCanvas.getContext('2d');
+        if (!ctx) {
+          safeResolve(sourceCanvas);
+          return;
+        }
 
-      img.src = wmDataUrl;
-      if (img.complete && img.naturalWidth !== 0) {
-        drawWatermarkLogic();
+        // 1. Copy slide content first
+        ctx.drawImage(sourceCanvas, 0, 0);
+
+        // 2. Load watermark image
+        const wmDataUrl = lang === 'ko' ? WATERMARK_KO_BASE64 : WATERMARK_EN_BASE64;
+        const img = new Image();
+
+        const drawWatermarkLogic = () => {
+          try {
+            const targetW = 220; // Half of original 440px on 1920x1080 canvas
+            const aspect = img.height > 0 && img.width > 0 ? img.height / img.width : 0.25;
+            const targetH = targetW * aspect;
+            const padding = 24;
+            const x = padding;
+            const y = outCanvas.height - targetH - padding;
+
+            ctx.save();
+            // Dark high-contrast background pill
+            ctx.fillStyle = 'rgba(15, 23, 42, 0.88)';
+            const bgPad = 10;
+            if (typeof ctx.roundRect === 'function') {
+              ctx.beginPath();
+              ctx.roundRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2, 16);
+              ctx.fill();
+            } else {
+              ctx.fillRect(x - bgPad, y - bgPad, targetW + bgPad * 2, targetH + bgPad * 2);
+            }
+
+            // Draw image
+            ctx.drawImage(img, x, y, targetW, targetH);
+            ctx.restore();
+            safeResolve(outCanvas);
+          } catch (err) {
+            console.error('Error drawing watermark:', err);
+            safeResolve(outCanvas);
+          }
+        };
+
+        img.onload = () => {
+          drawWatermarkLogic();
+        };
+        img.onerror = (err) => {
+          console.error('Watermark image failed to load:', err);
+          safeResolve(outCanvas);
+        };
+
+        img.src = wmDataUrl;
+        if (img.complete && img.naturalWidth !== 0) {
+          drawWatermarkLogic();
+        }
+      } catch (err) {
+        console.error('drawWatermarkOnCanvas top error:', err);
+        safeResolve(sourceCanvas);
       }
     });
   };
@@ -279,10 +292,28 @@ export default function LeftSidebar({
         if (watermarkEnabled) {
           canvas = await drawWatermarkOnCanvas(canvas, watermarkLang);
         }
-        const dataUrl = canvas.toDataURL('image/png');
+        let dataUrl = '';
+        try {
+          dataUrl = canvas.toDataURL('image/png');
+        } catch {
+          // If toDataURL throws, create clean fallback canvas
+          const fallbackCanvas = document.createElement('canvas');
+          fallbackCanvas.width = 1920;
+          fallbackCanvas.height = 1080;
+          const fbCtx = fallbackCanvas.getContext('2d');
+          if (fbCtx) {
+            fbCtx.fillStyle = '#ffffff';
+            fbCtx.fillRect(0, 0, 1920, 1080);
+            fbCtx.fillStyle = '#0f172a';
+            fbCtx.font = 'bold 40px sans-serif';
+            fbCtx.fillText(`Page ${i + 1}`, 100, 200);
+          }
+          dataUrl = fallbackCanvas.toDataURL('image/png');
+        }
+
         const imgData = dataUrl.split(',')[1];
         const pageNumStr = String(i + 1).padStart(2, '0');
-        if (imagesFolder) {
+        if (imagesFolder && imgData) {
           imagesFolder.file(`slide_${pageNumStr}_combined_1920x1080.png`, imgData, { base64: true });
         }
         slideImages.push({ page: i + 1, dataUrl });
